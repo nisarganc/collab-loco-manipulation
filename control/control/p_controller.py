@@ -9,8 +9,7 @@ from msgs_interfaces.msg import MarkerPoseArray
 MAX_LINEAR_VELOCITY = 0.1  # m/s
 MAX_ANGULAR_VELOCITY = 2.84  # rad/s
 
-TURTLE6 = 30
-OBJECT = 40
+IDs = {"turtle2": 10, "turtle4": 20, "turtle6": 30, "object": 40}
 
 
 class PosePController(Node):
@@ -43,7 +42,7 @@ class PosePController(Node):
         )
 
         # Create Publisher for cmd_vel
-        self.publisher = self.create_publisher(Twist, "/turtle6/cmd_vel", 10)
+        self.publisher = self.create_publisher(Twist, "/cmd_vel", 10)
 
     def pose_callback(self, msg: MarkerPoseArray):
         """
@@ -56,19 +55,20 @@ class PosePController(Node):
         x, y, theta = None, None, None
 
         # Get current pose from the robot
-        robot_pose = self.get_pose(msg, TURTLE6)
-        object_pose = self.get_pose(msg, OBJECT)
+        robot_pose = self.get_pose(msg, IDs[self.get_namespace()])
+        object_pose = self.get_pose(msg, IDs["object"])
 
         # Get the robot pose in the object frame
         if None in robot_pose or None in object_pose:
             return
         else:
-            x, y, theta = self.transform_coordinates_to_object_frame(
+            robot_pose_in_obj_frame = self.transform_coordinates_to_object_frame(
                 robot_pose, object_pose
             )
+            x, y, theta = robot_pose_in_obj_frame
 
         # Get desired pose
-        x_desired, y_desired, theta_desired = self.get_desired_pose(msg)
+        x_desired, y_desired, theta_desired = self.get_desired_pose(robot_pose_in_obj_frame)
 
         # Linear velocity
         error_x = x_desired - x
@@ -152,18 +152,40 @@ class PosePController(Node):
 
         return x, y, theta
 
-    def get_desired_pose(self, msg) -> tuple:
+    def get_desired_pose(self, robot_pose: Pose) -> tuple:
         """
         Get desired pose for the robot
+
+        Args:
+            robot_pose (tuple): x, y, theta of the robot in the object frame
 
         Returns:
             tuple: x, y, theta
         """
-        x = 0.21 
-        y = 0.0
-        theta = np.pi
+        # Check at which edge of the object the robot is. The object is a square of 0.42m
+        x, y, theta = robot_pose
+        
+        if theta > -np.pi/4 and theta < np.pi/4:
+            x_desired = -0.2
+            y_desired = 0
+            theta_desired = 0
 
-        return x, y, theta
+        elif theta > np.pi/4 and theta < 3*np.pi/4:
+            x_desired = 0
+            y_desired = 0.2
+            theta_desired = np.pi/2
+
+        elif theta > 3*np.pi/4 or theta < -3*np.pi/4:
+            x_desired = 0.2
+            y_desired = 0
+            theta_desired = np.pi
+
+        else:
+            x_desired = 0
+            y_desired = -0.2
+            theta_desired = -np.pi/2
+
+        return x_desired, y_desired, theta_desired
 
     def normalize_angle(self, angle: float) -> float:
         """

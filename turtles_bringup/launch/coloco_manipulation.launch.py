@@ -15,15 +15,9 @@ def generate_launch_description():
                 output="screen",
             ),
             Node(
-                package="optimizer",
-                executable="optimizer",
-                name="optimizer",
-                output="screen",
-            ),
-            Node(
-                package="vlm_model",
-                executable="GPT_node",
-                name="GPT_node",
+                package="control",
+                executable="p_controller",
+                name="p_controller",
                 output="screen",
             )
         ]
