@@ -6,10 +6,10 @@ from geometry_msgs.msg import Twist
 from geometry_msgs.msg import Pose
 from msgs_interfaces.msg import MarkerPoseArray
 
-MAX_LINEAR_VELOCITY = 0.1  # m/s
+MAX_LINEAR_VELOCITY = 0.01  # m/s
 MAX_ANGULAR_VELOCITY = 2.84  # rad/s
 
-IDs = {"turtle2": 10, "turtle4": 20, "turtle6": 30, "object": 40}
+IDs = {"/turtle2": 10, "/turtle4": 20, "/turtle6": 30, "object": 40}
 
 
 class PosePController(Node):
@@ -33,16 +33,18 @@ class PosePController(Node):
         super().__init__("pose_p_controller")
 
         # Controller gains
-        self.kp_angular = 0.2
-        self.kp_linear = 0.2
+        self.kp_angular = 1.0
+        self.kp_linear = 0.7
 
         # Create Subscriber for Aruco
         self.subscription = self.create_subscription(
-            MarkerPoseArray, "aruco_poses", self.pose_callback, 10
+            MarkerPoseArray, "/aruco_poses", self.pose_callback, 10
         )
 
-        # Create Publisher for cmd_vel
-        self.publisher = self.create_publisher(Twist, "/cmd_vel", 10)
+        # Create Publisher for cmd_vel for the robot
+        namespace = self.get_namespace()
+        # self.get_logger().info(f"Namespace: {namespace}")
+        self.publisher = self.create_publisher(Twist, f"{namespace}/cmd_vel", 10)
 
     def pose_callback(self, msg: MarkerPoseArray):
         """
@@ -81,18 +83,17 @@ class PosePController(Node):
 
         # Normalize the velocities
         linear_angular_ratio = linear_vel / angular_vel
-        if linear_vel > MAX_LINEAR_VELOCITY:
-            linear_vel = MAX_LINEAR_VELOCITY
-            angular_vel = linear_vel / linear_angular_ratio
+        linear_vel = MAX_LINEAR_VELOCITY
+        angular_vel = linear_vel / linear_angular_ratio
 
         # Check if threshold is reached (optional)
-        if (
-            np.abs(error_x) < 0.05
-            and np.abs(error_y) < 0.05
-            and np.abs(error_theta) < 0.05
-        ):
-            linear_vel = 0.0
-            angular_vel = 0.0
+        # if (
+        #     np.abs(error_x) < 0.05
+        #     and np.abs(error_y) < 0.05
+        #     and np.abs(error_theta) < 0.05
+        # ):
+        #     linear_vel = 0.0
+        #     angular_vel = 0.0
 
         # Publish the velocity
         cmd_vel_msg = Twist()
@@ -164,25 +165,23 @@ class PosePController(Node):
         """
         # Check at which edge of the object the robot is. The object is a square of 0.42m
         x, y, theta = robot_pose
+        radius = 0.5
         
         if theta > -np.pi/4 and theta < np.pi/4:
-            x_desired = -0.2
+            x_desired = -radius
             y_desired = 0
             theta_desired = 0
-
         elif theta > np.pi/4 and theta < 3*np.pi/4:
             x_desired = 0
-            y_desired = 0.2
+            y_desired = -radius
             theta_desired = np.pi/2
-
         elif theta > 3*np.pi/4 or theta < -3*np.pi/4:
-            x_desired = 0.2
+            x_desired = radius
             y_desired = 0
             theta_desired = np.pi
-
         else:
             x_desired = 0
-            y_desired = -0.2
+            y_desired = radius
             theta_desired = -np.pi/2
 
         return x_desired, y_desired, theta_desired
