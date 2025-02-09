@@ -8,15 +8,22 @@ repository organisation:
 
 pose_estimation:
 - change the webcam name instead of dynamic number
-- better logic for ProjectGoalPose?
-- draw yaw angle directions and range (-pi to pi)
+- create a namespace for the mapping of ids with turtles
 
-new python package:
-- implement ov object detection to obtain obstacles bounding boxes and segment manipulating object
+vlm_model:
+- obtain scene image and aruco corners from scene_msg
+- implement ov object detection to obtain obstacles bounding boxes 
+    - remove boxes around robots, markers, and object
+    - decide the grounding dino vlm_model
+    - change to gpu and cuda 
+- segment manipulating object
 
 optimizer/gtsam:
-- Fix goalpose and T0 sharing btw pose_estimation and optimizer
-- record code for experiments 
+- obtain goal pose from user
+- move scenesubscriber to vlmclient: 
+    - optimise-proj_goal and proj_traj
+    - draw yaw angle directions and range (-pi to pi)
+- recording code for experiments 
 - change gactor graph to consider obstacles bounding boxes from BBOX
 - contruct fg for switch mode trajectories
 - check time for translation/rotation
@@ -24,15 +31,12 @@ optimizer/gtsam:
 - Complete optimizer.h code
 
 action-planning/vlm_model:
-- ToDo: TIMING/ DESCRITIZATION OF PATH/ when to query VLM?
+- ToDo: timig/descritization of path. When to query VLM?
 - VLM call: 
     - robot always faces normal to object. Compare manipulation direction with positioning of robots around objects and the resultant force. Action switch required? 
     - define high level switch_contact_points actions: right-centre, right-left, right-right, left-centre, left-left, left-right
     - How to asses scene obstacles/weight/friction into account?
 
-- Low level controller each hl actions? 
-        - use Box 60.2*65.2 dimension to generate switch_contacts action trajectory->velocity commands.
-        - ROS2 cmd_vel with constant vel (1.0) and sleep (Ts_translation). Test how long does the specific box move.
-
 experiments:
-- small object (box, t, rectangle, barral: all with different weight)
+- objects (square box-different sizes, t-shaped, rectangle)
+- weight: fill package with to weigh differently

@@ -36,6 +36,9 @@ ros2 launch turtles_bringup coloco_rosnodes.launch.py
 ros2 launch turtles_bringup coloco_manipulation.launch.py
 ```
 
+## Results
+![Scene Perception](detection_results.jpg)
+
 ## Acknowledgements
 - [ROS-LLM](https://github.com/Auromix/ROS-LLM)
 - [MR.CAP](https://github.com/h2jaafar/mr.cap)

@@ -1,0 +1,9 @@
+string camera_name
+---
+int32 image_width
+int32 image_height
+float64 fx
+float64 fy
+float64 cx
+float64 cy
+float64[16] t0

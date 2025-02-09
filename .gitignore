@@ -1,3 +1,5 @@
 *__pycache__
 vlm_model/vlm_model/openai_config.py
+vlm_model/vlm_model/scene_dataset/
+optimizer/fg_info.txt
 .vscode/
