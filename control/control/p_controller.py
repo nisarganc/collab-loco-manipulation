@@ -1,12 +1,13 @@
 import rclpy
 import numpy as np
 from rclpy.node import Node
+import threading
 
 from geometry_msgs.msg import Twist
 from geometry_msgs.msg import Pose
 from msgs_interfaces.msg import MarkerPoseArray, MarkerPose
 
-MAX_LINEAR_VELOCITY = 0.001  # m/s
+MAX_LINEAR_VELOCITY = 0.1  # m/s
 MAX_ANGULAR_VELOCITY = 2.84  # rad/s
 
 IDs = {"/turtle2": 10, "/turtle4": 20, "/turtle6": 30, "object": 40}
@@ -31,15 +32,18 @@ class PosePIDController(Node):
             Node: Inherited from rclpy.Node
         """
         super().__init__("pose_p_controller")
+        self._lock = threading.Lock()
 
         # PID parameters
         self.kp_linear = 0.2
         self.ki_linear = 0.0
         self.kd_linear = 0.0
 
-        self.kp_angular = 0.2
+        self.kp_angular = 0.5
         self.ki_angular = 0.0
         self.kd_angular = 0.0
+
+        self.kp_final_angle = 0.4
 
         self.integral_linear = 0.0
         self.integral_angular = 0.0
@@ -47,13 +51,11 @@ class PosePIDController(Node):
         self.prev_error_angular = 0.0
 
         # Time step
-        self.dt = 0.01  # 10ms
+        self.dt = 0.1  # 100ms
 
-        # Robot and object pose
-        self.robot_pose = MarkerPose()
-        self.robot_pose.id = IDs[self.get_namespace()]
-        self.desired_pose = MarkerPose()
-        self.desired_pose.id = IDs["object"]
+        # Velocities
+        self.linear_velocity = 0.0
+        self.angular_velocity = 0.0
 
         # Create Subscriber for Aruco
         self.subscription = self.create_subscription(
@@ -74,51 +76,26 @@ class PosePIDController(Node):
         Args:
             msg (Pose): Pose message from the Aruco marker
         """
-        # Get the robot pose
-        robot_pose = self.get_pose(msg, self.robot_pose.id)
-
-        # Get the object pose
-        object_pose = self.get_pose(msg, self.desired_pose.id)
-
+        # Get the poses
+        robot_pose = self.get_pose(msg, IDs[self.get_namespace()])
+        object_pose = self.get_pose(msg, IDs["object"])
         if None in robot_pose or None in object_pose:
-            self.desired_pose.x, self.desired_pose.y, self.desired_pose.theta = (
-                0.0,
-                0.0,
-                0.0,
-            )
             return
 
-        # Transform the robot pose to the object frame
-        self.robot_pose.x, self.robot_pose.y, self.robot_pose.theta = (
-            self.transform_to_frame(robot_pose, object_pose)
-        )
+        desired_pose = self.get_desired_pose(robot_pose, object_pose)
 
-        # Get the desired pose
-        self.desired_pose.x, self.desired_pose.y, self.desired_pose.theta = (
-            self.get_desired_pose(
-                (self.robot_pose.x, self.robot_pose.y, self.robot_pose.theta)
-            )
-        )
-
-    def controller_callback(self):
-        """
-        Callback function for the controller
-        """
-        if (
-            self.desired_pose.x == 0
-            and self.desired_pose.y == 0
-            and self.desired_pose.theta == 0
-        ):
-            return
+        robot_pose_x, robot_pose_y, robot_pose_theta = robot_pose
+        desired_pose_x, desired_pose_y, desired_pose_theta = desired_pose
 
         # Calculate errors
-        error_x = self.desired_pose.x - self.robot_pose.x
-        error_y = self.desired_pose.y - self.robot_pose.y
+        error_x = desired_pose_x - robot_pose_x
+        error_y = desired_pose_y - robot_pose_y
 
         error_linear = np.sqrt(error_x**2 + error_y**2)
-        error_angular = self.normalize_angle(
-            self.desired_pose.theta - self.robot_pose.theta
-        )
+        error_angular = self.normalize_angle(np.arctan2(error_y, error_x))
+
+        # Final angle
+        error_final_angle = self.normalize_angle(desired_pose_theta - robot_pose_theta)
 
         # PID calculations
         self.integral_linear += error_linear * self.dt
@@ -137,28 +114,39 @@ class PosePIDController(Node):
             self.kp_angular * error_angular
             + self.ki_angular * self.integral_angular
             + self.kd_angular * derivative_angular
+            + self.kp_final_angle * error_final_angle
         )
 
         self.prev_error_angular = error_angular
         self.prev_error_linear = error_linear
 
-        # Limit the velocity
-        ratio = omega / v
-        v = MAX_LINEAR_VELOCITY
-        omega *= ratio
+        # ratio = omega / v
+        # v = MAX_LINEAR_VELOCITY
+        # omega *= ratio
 
-        # Publish the velocity
-        cmd = Twist()
-        cmd.linear.x = v
-        cmd.angular.z = omega
-        self.publisher.publish(cmd)
+        with self._lock:
+            self.linear_velocity = v
+            self.angular_velocity = omega
 
         # Print log
         self.get_logger().info(
-            f"Robot Pose: ({self.robot_pose.x:.2f}, {self.robot_pose.y:.2f}, {self.robot_pose.theta:.2f}) "
-            f"Desired Pose: ({self.desired_pose.x:.2f}, {self.desired_pose.y:.2f}, {self.desired_pose.theta:.2f}) "
-            f"Delta: ({error_x:.2f}, {error_y:.2f}, {error_angular:.2f})"
+            f"Robot Pose: ({robot_pose_x:.2f}, {robot_pose_y:.2f}, {robot_pose_theta:.2f}) "
+            f"Desired Pose: ({desired_pose_x:.2f}, {desired_pose_y:.2f}, {desired_pose_theta:.2f}) "
+            f"Error: ({error_x:.2f}, {error_y:.2f}, {error_final_angle:.2f}) "
+            f"v: ({v:.2f}) "
+            f"omega: ({omega:.2f})"
         )
+
+    def controller_callback(self):
+        """
+        Callback function for the controller
+        """
+        # Publish the velocity
+        cmd = Twist()
+        with self._lock:
+            cmd.linear.x = self.linear_velocity
+            cmd.angular.z = self.angular_velocity
+            self.publisher.publish(cmd)
 
     def get_pose(self, msg: MarkerPoseArray, id: int) -> tuple:
         """
@@ -179,9 +167,9 @@ class PosePIDController(Node):
 
         return x, y, theta
 
-    def transform_to_frame(self, robot_pose: tuple, object_pose: tuple) -> tuple:
+    def get_desired_pose(self, robot_pose: tuple, object_pose: tuple) -> tuple:
         """
-        Transform the robot pose to the object frame
+        Get desired pose for the robot
 
         Args:
             robot_pose (tuple): x, y, theta of the robot
@@ -190,55 +178,63 @@ class PosePIDController(Node):
         Returns:
             tuple: x, y, theta
         """
-        x_robot, y_robot, theta_robot = robot_pose
-        reference_x, reference_y, reference_angle = object_pose
+        # Check at which edge of the object the robot is. The object is a square of 0.42m
+        x, y, _ = self.transform_to_frame(robot_pose, object_pose)
+        self.get_logger().info(
+            f"{x:.2f}, {y:.2f}"
+        )
+        radius = 0.45
 
-        x = (x_robot - reference_x) * np.cos(reference_angle) + (
-            y_robot - reference_y
-        ) * np.sin(reference_angle)
-        y = -(x_robot - reference_x) * np.sin(reference_angle) + (
-            y_robot - reference_y
-        ) * np.cos(reference_angle)
-        theta = self.normalize_angle(theta_robot - reference_angle)
+        # Check on which edge the robot is
+        if x < radius:
+            x_desired, y_desired, theta_desired = self.transform_to_frame(
+                (radius, 0, 0), (0, 0, 0), object_pose
+            )
+        elif x > -radius:
+            x_desired, y_desired, theta_desired = self.transform_to_frame(
+                (-radius, 0, np.pi), (0, 0, 0), object_pose
+            )
+        elif y > radius:
+            x_desired, y_desired, theta_desired = self.transform_to_frame(
+                (0, radius, -np.pi / 2), (0, 0, 0), object_pose
+            )
+        elif y < -radius:
+            x_desired, y_desired, theta_desired = self.transform_to_frame(
+                (0, -radius, np.pi / 2), (0, 0, 0), object_pose
+            )
+        else:
+            x_desired, y_desired, theta_desired = robot_pose
 
-        return x, y, theta
-
-    def get_desired_pose(self, robot_pose: tuple) -> tuple:
+        return x_desired, y_desired, theta_desired
+    
+    def transform_to_frame(
+        self, pose: tuple, transform_frame: tuple, reference_frame: tuple = (0, 0, 0)
+    ) -> tuple:
         """
-        Get desired pose for the robot
+        Transform the pose to the reference frame
 
         Args:
-            robot_pose (tuple): x, y, theta of the robot
+            pose (tuple): x, y, theta
+            transform_frame (tuple): x, y, theta of the frame to transform to
+            reference_frame (tuple): x, y, theta of the reference frame
 
         Returns:
             tuple: x, y, theta
         """
-        # Check at which edge of the object the robot is. The object is a square of 0.42m
-        x, y, theta = robot_pose
-        radius = 0.5
 
-        if theta > -np.pi / 4 and theta < np.pi / 4:
-            x_desired = -radius
-            y_desired = 0.0
-            theta_desired = 0
-        elif theta > np.pi / 4 and theta < 3 * np.pi / 4:
-            x_desired = 0.0
-            y_desired = -radius
-            theta_desired = np.pi / 2
-        elif theta > 3 * np.pi / 4 or theta < -3 * np.pi / 4:
-            x_desired = radius
-            y_desired = 0.0
-            theta_desired = np.pi
-        else:
-            x_desired = 0.0
-            y_desired = radius
-            theta_desired = -np.pi / 2
+        x, y, theta = pose
+        transform_x, transform_y, transform_angle = transform_frame
+        reference_x, reference_y, reference_angle = reference_frame
 
-        x_desired = radius
-        y_desired = 0.0
-        theta_desired = np.pi
+        x += reference_x
+        y += reference_y
+        theta += reference_angle
 
-        return x_desired, y_desired, float(theta_desired)
+        x_new = (x - transform_x) * np.cos(transform_angle) - (y - transform_y) * np.sin(transform_angle)
+        y_new = -(x - transform_x) * np.sin(transform_angle) + (y - transform_y) * np.cos(transform_angle)
+        theta_new = self.normalize_angle(theta - transform_angle)
+
+        return x_new, y_new, theta_new
 
     def normalize_angle(self, angle: float) -> float:
         """
