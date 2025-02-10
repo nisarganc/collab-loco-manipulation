@@ -35,7 +35,7 @@ class PosePIDController(Node):
         self._lock = threading.Lock()
 
         # PID parameters
-        self.kp_linear = 0.2
+        self.kp_linear = 0.1
         self.ki_linear = 0.0
         self.kd_linear = 0.0
 
@@ -68,6 +68,9 @@ class PosePIDController(Node):
 
         # Create timer
         self.timer = self.create_timer(self.dt, self.controller_callback)
+        self.timer_backwards = self.create_timer(1, self.backwards_callback)
+        self.pose_callback_counter = 0
+        
 
     def pose_callback(self, msg: MarkerPoseArray):
         """
@@ -137,16 +140,39 @@ class PosePIDController(Node):
             f"omega: ({omega:.2f})"
         )
 
+        self.pose_callback_counter = 0
+
     def controller_callback(self):
         """
         Callback function for the controller
         """
         # Publish the velocity
+        if self.pose_callback_counter > 10:
+            return
+        
         cmd = Twist()
         with self._lock:
             cmd.linear.x = self.linear_velocity
             cmd.angular.z = self.angular_velocity
             self.publisher.publish(cmd)
+
+        self.pose_callback_counter += 1
+
+    def backwards_callback(self):
+        """
+        Callback function for the backwards movement
+        """
+        # Publish the velocity
+        if self.pose_callback_counter > 10:
+            return
+        
+        cmd = Twist()
+        with self._lock:
+            cmd.linear.x = -MAX_LINEAR_VELOCITY
+            cmd.angular.z = 0.0
+            self.publisher.publish(cmd)
+
+        self.pose_callback_counter += 1
 
     def get_pose(self, msg: MarkerPoseArray, id: int) -> tuple:
         """
@@ -180,28 +206,32 @@ class PosePIDController(Node):
         """
         # Check at which edge of the object the robot is. The object is a square of 0.42m
         x, y, _ = self.transform_to_frame(robot_pose, object_pose)
-        self.get_logger().info(
-            f"{x:.2f}, {y:.2f}"
-        )
-        radius = 0.45
+        # self.get_logger().info(
+        #     f"{x:.2f}, {y:.2f}"
+        # )
+        radius = 0.25
 
         # Check on which edge the robot is
-        if x < radius:
-            x_desired, y_desired, theta_desired = self.transform_to_frame(
-                (radius, 0, 0), (0, 0, 0), object_pose
-            )
-        elif x > -radius:
+        if x > radius:
             x_desired, y_desired, theta_desired = self.transform_to_frame(
                 (-radius, 0, np.pi), (0, 0, 0), object_pose
             )
+            self.get_logger().info("x")
+        elif x < -radius:
+            x_desired, y_desired, theta_desired = self.transform_to_frame(
+                (radius, 0, 0), (0, 0, 0), object_pose
+            )
+            self.get_logger().info("-x")
         elif y > radius:
             x_desired, y_desired, theta_desired = self.transform_to_frame(
-                (0, radius, -np.pi / 2), (0, 0, 0), object_pose
+                (0, -radius, -np.pi / 2), (0, 0, 0), object_pose
             )
+            self.get_logger().info("y")
         elif y < -radius:
             x_desired, y_desired, theta_desired = self.transform_to_frame(
-                (0, -radius, np.pi / 2), (0, 0, 0), object_pose
+                (0, radius, np.pi / 2), (0, 0, 0), object_pose
             )
+            self.get_logger().info("-y")
         else:
             x_desired, y_desired, theta_desired = robot_pose
 
