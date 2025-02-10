@@ -9,14 +9,17 @@ repository organisation:
 pose_estimation:
 - change the webcam name instead of dynamic number
 - create a namespace for the mapping of ids with turtles
+- pass cam intrinsics as parameter
 
 vlm_model:
 - obtain scene image and aruco corners from scene_msg
 - implement ov object detection to obtain obstacles bounding boxes 
     - remove boxes around robots, markers, and object
-    - decide the grounding dino vlm_model
     - change to gpu and cuda 
 - segment manipulating object
+    - change from bbox to object bbox
+- check for faster inference     
+- Transform from camera frame to world frame and pass it to optimizer   
 
 optimizer/gtsam:
 - obtain goal pose from user
