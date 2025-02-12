@@ -1,6 +1,8 @@
 import rclpy
 import numpy as np
 from rclpy.node import Node
+from rclpy.executors import MultiThreadedExecutor
+from rclpy.callback_groups import ReentrantCallbackGroup
 import threading
 
 from geometry_msgs.msg import Twist
@@ -35,8 +37,8 @@ class PosePController(Node):
         self._lock = threading.Lock()
 
         # P parameters
-        self.kp_linear = 0.4
-        self.kp_angular = 0.1
+        self.kp_linear = 0.3
+        self.kp_angular = 0.2
         self.kp_final_angle = 0.4
 
         # Time step
@@ -46,9 +48,12 @@ class PosePController(Node):
         self.linear_velocity = 0.0
         self.angular_velocity = 0.0
 
+        # callback group
+        callback_group = ReentrantCallbackGroup()
+
         # Create Subscriber for Aruco
-        self.subscription = self.create_subscription(
-            MarkerPoseArray, "/aruco_poses", self.pose_callback, 10
+        self.pose_subscriber = self.create_subscription(
+            MarkerPoseArray, "/aruco_poses", self.pose_callback, 10, callback_group=callback_group
         )
 
         # Create Publisher for cmd_vel for the robot
@@ -57,12 +62,12 @@ class PosePController(Node):
             topic_name = f"/{namespace}/cmd_vel"
         else:
             topic_name = "cmd_vel"
-        self.publisher = self.create_publisher(Twist, topic_name, 10)
+        self.cmd_publisher = self.create_publisher(Twist, topic_name, 10)
 
         # Create timer
-        self.timer = self.create_timer(self.dt, self.controller_callback)
-        # self.timer_backwards = self.create_timer(1, self.backwards_callback)
+        self.timer = self.create_timer(self.dt, self.controller_callback, callback_group=callback_group)
         self.pose_callback_counter = 0
+        self.forward_counter = 0
 
     def pose_callback(self, msg: MarkerPoseArray):
         """
@@ -101,9 +106,9 @@ class PosePController(Node):
         self.prev_error_angular = error_angular
         self.prev_error_linear = error_linear
 
-        # ratio = omega / v
-        # v = MAX_LINEAR_VELOCITY
-        # omega *= ratio
+        ratio = omega / v
+        v = MAX_LINEAR_VELOCITY
+        omega *= ratio
 
         with self._lock:
             self.linear_velocity = v
@@ -130,26 +135,16 @@ class PosePController(Node):
             return
 
         cmd = Twist()
-        with self._lock:
-            cmd.linear.x = self.linear_velocity
-            cmd.angular.z = self.angular_velocity
-            self.publisher.publish(cmd)
-
-        self.pose_callback_counter += 1
-
-    def backwards_callback(self):
-        """
-        Callback function for the backwards movement
-        """
-        # Publish the velocity
-        if self.pose_callback_counter > 10:
-            return
-
-        cmd = Twist()
-        with self._lock:
-            cmd.linear.x = -MAX_LINEAR_VELOCITY
-            cmd.angular.z = 0.0
-            self.publisher.publish(cmd)
+        # with self._lock:
+        #     if self.forward_counter < 5:
+        #         cmd.linear.x = self.linear_velocity
+        #         cmd.angular.z = self.angular_velocity
+        #         self.forward_counter += 1
+        #     else:
+        #         cmd.linear.x = -self.linear_velocity
+        #         cmd.angular.z = -self.angular_velocity
+        #         self.forward_counter = 0
+            # self.cmd_publisher.publish(cmd)
 
         self.pose_callback_counter += 1
 
@@ -277,16 +272,16 @@ class PosePController(Node):
 def main(args=None):
     rclpy.init(args=args)
 
-    minimal_subscriber = PosePController()
+    controller = PosePController()
 
-    rclpy.spin(minimal_subscriber)
+    executor = MultiThreadedExecutor()
+    executor.add_node(controller)
 
-    # Destroy the node explicitly
-    # (optional - otherwise it will be done automatically
-    # when the garbage collector destroys the node object)
-    minimal_subscriber.destroy_node()
-    rclpy.shutdown()
-
+    try:
+        executor.spin()
+    except (KeyboardInterrupt):
+        controller.destroy_node()
+        rclpy.shutdown()
 
 if __name__ == "__main__":
     main()

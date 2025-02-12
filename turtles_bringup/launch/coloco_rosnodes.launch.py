@@ -34,6 +34,6 @@ def generate_launch_description():
                 name="p_controller",
                 namespace="turtle6",
                 output="screen",
-            ),
+            )
         ]
     )
