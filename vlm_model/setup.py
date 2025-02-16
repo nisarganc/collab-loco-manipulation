@@ -11,7 +11,7 @@ setup(
             ['resource/' + package_name]),        
         ("share/" + package_name, ['package.xml']),
     ],
-    install_requires=["setuptools", "msgs_interfaces"],
+    install_requires=["setuptools", "msgs_interfaces", "SAM-2"],
     zip_safe=True,
     maintainer="Nisarga Nilavadi",
     maintainer_email="nisarga.nilavadi@utn.de",
@@ -20,6 +20,7 @@ setup(
     tests_require=["pytest"],
     entry_points={
         "console_scripts": [
+            "scene_perception = vlm_model.scene_perception:main",
             "GPT_node = vlm_model.GPT_node:main",
         ],
     },

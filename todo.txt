@@ -1,25 +1,11 @@
-repository organisation:
-- create a python env and run python files from env
-- create python env requirements file and update requirements installation in README.md
-- update c++ packages requirements in README.md
-- update citations on code files
-- remove unnecessary headers and info
-- add file purpose headers
-
-pose_estimation:
-- change the webcam name instead of dynamic number
-- create a namespace for the mapping of ids with turtles
-- pass cam intrinsics as parameter
-
-vlm_model:
-- obtain scene image and aruco corners from scene_msg
+scene_perception:
 - implement ov object detection to obtain obstacles bounding boxes 
     - remove boxes around robots, markers, and object
-    - change to gpu and cuda 
+    - track the obstacles-objects
+    - transform to world frame 
 - segment manipulating object
-    - change from bbox to object bbox
-- check for faster inference     
-- Transform from camera frame to world frame and pass it to optimizer   
+    - obtain countour
+    - transform to object frame   
 
 optimizer/gtsam:
 - obtain goal pose from user
@@ -43,3 +29,19 @@ action-planning/vlm_model:
 experiments:
 - objects (square box-different sizes, t-shaped, rectangle)
 - weight: fill package with to weigh differently
+
+repository organisation:
+- document sam2 cloning and fix abs path
+- create a python env and run python files from env
+- create python env requirements file and update requirements installation in README.md
+- update c++ packages requirements in README.md
+- update citations on code files
+- remove unnecessary headers and info
+- add file purpose headers
+
+pose_estimation:
+- change bgr sensor msg to rgb?
+- change the webcam name instead of dynamic number
+- create a namespace for the mapping of ids with turtles
+- pass cam intrinsics as parameter
+

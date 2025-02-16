@@ -16,23 +16,23 @@ def generate_launch_description():
                 name="aruco_poses_publisher",
                 output="screen",
             ),
-            # Node(
-            #     package="vlm_model",
-            #     executable="tracker",
-            #     name="tracker",
-            #     output="screen",
-            # ),
-            Node(
-                package="optimizer",
-                executable="optimizer",
-                name="optimizer",
-                output="screen",
-            ),
             Node(
                 package="vlm_model",
-                executable="GPT_node",
-                name="GPT_node",
+                executable="scene_perception",
+                name="scene_perception",
                 output="screen",
-            )
+            ),
+            # Node(
+            #     package="optimizer",
+            #     executable="optimizer",
+            #     name="optimizer",
+            #     output="screen",
+            # ),
+            # Node(
+            #     package="vlm_model",
+            #     executable="GPT_node",
+            #     name="GPT_node",
+            #     output="screen",
+            # )
         ]
     )

@@ -27,6 +27,7 @@ cd ..
   python -m venv objectpushing
   source ~/coloco-manipulation/objectpushing/bin/activate
   git clone https://github.com/nisarganc/coloco-manipulation.git src
+  rosdep install --from-paths src --ignore-src -r -y
   colcon build --symlink-install
 ```
 
@@ -40,5 +41,7 @@ ros2 launch turtles_bringup coloco_manipulation.launch.py
 ![Scene Perception](detection_results.jpg)
 
 ## Acknowledgements
+- [SAM-2](https://github.com/facebookresearch/sam2)
+- [segment-anything-2-real-time](https://github.com/Gy920/segment-anything-2-real-time)
 - [ROS-LLM](https://github.com/Auromix/ROS-LLM)
 - [MR.CAP](https://github.com/h2jaafar/mr.cap)

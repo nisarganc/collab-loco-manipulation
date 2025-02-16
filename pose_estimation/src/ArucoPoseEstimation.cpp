@@ -19,6 +19,7 @@
 #include <msgs_interfaces/msg/marker_pose.hpp>
 #include <msgs_interfaces/msg/marker_pose_array.hpp>
 
+#include <msgs_interfaces/msg/point.hpp>
 #include <msgs_interfaces/msg/marker_corner.hpp>
 #include <msgs_interfaces/msg/scene_info.hpp>
 
@@ -28,8 +29,8 @@ using namespace std;
 std::map<int, std::string> aruco_turtle;
 
 const double ARROW_LENGTH = 0.05;
-const int image_width = 1920;
-const int image_height = 1080;
+const int image_height = 1080; //rows
+const int image_width = 1920; //columns
 const double fx = 1019.66062; 
 const double cx = 944.551199; 
 const double fy = 1021.42301; 
@@ -50,10 +51,10 @@ class ArucoPoseEstimation : public rclcpp::Node {
             aruco_turtle[30] = "turtle6";
             aruco_turtle[40] = "object";
 
-            // read camera frames and print fps
-            cap = std::make_shared<cv::VideoCapture>(6);
-            double fps = cap->get(cv::CAP_PROP_FPS);
-            RCLCPP_INFO(this->get_logger(), "Camera FPS: %f", fps);
+            cap = std::make_shared<cv::VideoCapture>(5);
+            // cap.set(cv::CAP_PROP_FRAME_HEIGHT, image_height);            
+            // cap.set(cv::CAP_PROP_FRAME_WIDTH, image_width);
+            // cap.set(cv::CAP_PROP_FPS, 5);
 
             if (!cap->isOpened()) {
                 RCLCPP_ERROR(this->get_logger(), "Failed to open camera");
@@ -80,7 +81,7 @@ class ArucoPoseEstimation : public rclcpp::Node {
             }
 
             camera_params_service_ = this->create_service<msgs_interfaces::srv::CameraParams>(
-                "camera_params", std::bind(&ArucoPoseEstimation::CameraParamsCallback, 
+                "camera_params_service", std::bind(&ArucoPoseEstimation::CameraParamsCallback, 
                 this, std::placeholders::_1, std::placeholders::_2));
 
         }
@@ -108,6 +109,7 @@ class ArucoPoseEstimation : public rclcpp::Node {
                 RCLCPP_WARN(this->get_logger(), "Failed to capture frame");
                 return false;
             }
+            // cv::cvtColor(frame, frame, cv::COLOR_BGR2RGB);
 
             cv::aruco::detectMarkers(frame, dictionary, markerCorners, markerIds);
 
@@ -120,14 +122,11 @@ class ArucoPoseEstimation : public rclcpp::Node {
                     if (markerIds[i] == 0) {
 
                         marker0_corner.id = 0;
-                        int siz = 0;
+                        msgs_interfaces::msg::Point corner_point;
                         for (int j = 0; j < markerCorners[i].size(); j++) {
-                            float x = markerCorners[i][j].x;
-                            float y = markerCorners[i][j].y;
-                            marker0_corner.corner_points[siz] = x;
-                            siz=siz+1;
-                            marker0_corner.corner_points[siz] = y;
-                            siz=siz+1;
+                            corner_point.x = markerCorners[i][j].x;
+                            corner_point.y = markerCorners[i][j].y;
+                            marker0_corner.corner_points.push_back(corner_point);
                         }
 
                         rvec0 = cv::Mat(rvecs[i]);
@@ -196,6 +195,7 @@ class ArucoPoseEstimation : public rclcpp::Node {
                 RCLCPP_WARN(this->get_logger(), "Failed to capture frame");
                 return;
             }
+            // cv::cvtColor(frame, frame, cv::COLOR_BGR2RGB);
 
             cv::aruco::detectMarkers(frame, dictionary, markerCorners, markerIds);            
             
@@ -234,16 +234,13 @@ class ArucoPoseEstimation : public rclcpp::Node {
                         marker_pose.theta = rvec_rel.at<double>(2);
                         marker_pose_array_msg.poses.push_back(marker_pose);
 
+                        msgs_interfaces::msg::Point corner_point;
                         msgs_interfaces::msg::MarkerCorner marker_corner;
                         marker_corner.id = markerIds[i];
-                        int siz = 0;
                         for (int j = 0; j < markerCorners[i].size(); j++) {
-                            float x = markerCorners[i][j].x;
-                            float y = markerCorners[i][j].y;
-                            marker_corner.corner_points[siz] = x;
-                            siz=siz+1;
-                            marker_corner.corner_points[siz] = y;
-                            siz=siz+1;
+                            corner_point.x = markerCorners[i][j].x;
+                            corner_point.y = markerCorners[i][j].y;
+                            marker_corner.corner_points.push_back(corner_point);
                         }
                         scene_msg.marker_corners.push_back(marker_corner);
 
@@ -273,14 +270,11 @@ class ArucoPoseEstimation : public rclcpp::Node {
                     cv::putText(frame, aruco_turtle[markerIds[i]], cornerPointy, cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(0, 0, 255), 2);
                 }
 
+                // cv::cvtColor(frame, frame, cv::COLOR_RGB2BGR);
                 scene_msg.image = *cv_bridge::CvImage(std_msgs::msg::Header(), "bgr8", frame).toImageMsg();
                 scene_publisher_->publish(scene_msg);
                 
-            }
-
-            cv::imshow("CameraFrame", frame);
-            cv::waitKey(1);
-            
+            }   
         }
 };
 
