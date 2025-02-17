@@ -14,13 +14,14 @@ find_package(sensor_msgs REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/GPT.srv"
   "srv/CameraParams.srv"
+
+  "msg/Point.msg"
+  "msg/MarkerPoint.msg"  
   "msg/MarkerPose.msg"
   "msg/MarkerPoseArray.msg"
-  "msg/Point.msg"
-  "msg/MarkerCorner.msg"
   "msg/SceneInfo.msg"
   DEPENDENCIES geometry_msgs sensor_msgs 
- )
+)
 
 ament_export_dependencies(rosidl_default_runtime)
 
