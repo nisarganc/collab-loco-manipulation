@@ -8,16 +8,11 @@ import threading
 from geometry_msgs.msg import Twist
 from msgs_interfaces.msg import MarkerPoseArray
 
-MAX_LINEAR_VELOCITY = 0.01  # m/s
-MAX_ANGULAR_VELOCITY = 0.01  # rad/s
-RADIUS = 0.42  # m
+MAX_LINEAR_VELOCITY = 0.1  # m/s
+MAX_ANGULAR_VELOCITY = 0.1  # rad/s
+RADIUS = 0.4  # m
 
 IDs = {"/turtle2": 10, "/turtle4": 20, "/turtle6": 30, "object": 40}
-
-cmd_back = Twist()
-cmd_back.linear.x = -0.01
-cmd_back.angular.z = 0.0
-
 
 class PosePController(Node):
     """
@@ -80,24 +75,29 @@ class PosePController(Node):
             msg (Pose): Pose message from the Aruco marker
         """
         # Get the poses
-        robot_pose = self.get_pose(msg, IDs[self.get_namespace()])
-        object_pose = self.get_pose(msg, IDs["object"])
-        if None in robot_pose or None in object_pose:
+        object_frame = self.get_pose(msg, IDs["object"])
+        robot_pose_WF = self.get_pose(msg, IDs[self.get_namespace()])
+
+        if None in robot_pose_WF or None in object_frame:
             return
 
-        desired_pose = self.get_desired_pose(robot_pose, object_pose)
+        robot_pose_OF = self.transform_to_frame(robot_pose_WF, object_frame)
 
-        robot_pose_x, robot_pose_y, robot_pose_theta = robot_pose
-        desired_pose_x, desired_pose_y, desired_pose_theta = desired_pose
+        desired_pose_OF = self.get_desired_pose(robot_pose_OF)
+
+        robot_pose_x_OF, robot_pose_y_OF, robot_pose_theta_OF = robot_pose_OF
+        desired_pose_x_OF, desired_pose_y_OF, desired_pose_theta_OF = desired_pose_OF
 
         # Calculate errors
-        error_x = desired_pose_x - robot_pose_x
-        error_y = desired_pose_y - robot_pose_y
-        error_final_angle = self.shortest_angular_distance(robot_pose_theta, desired_pose_theta)
+        error_x = desired_pose_x_OF - robot_pose_x_OF
+        error_y = desired_pose_y_OF - robot_pose_y_OF
+        error_final_angle = self.shortest_angular_distance(
+            robot_pose_theta_OF, desired_pose_theta_OF
+        )
 
         error_linear = np.sqrt(error_x**2 + error_y**2)
         error_angular = self.normalize_angle(
-            np.arctan2(error_y, error_x) - robot_pose_theta
+            np.arctan2(error_y, error_x) - robot_pose_theta_OF
         )
 
         v = self.kp_linear * error_linear
@@ -112,9 +112,9 @@ class PosePController(Node):
 
         # Print log
         self.get_logger().info(
-            f"Robot Pose: ({robot_pose_x:.2f}, {robot_pose_y:.2f}, {robot_pose_theta:.2f}) "
-            f"Object Pose: ({object_pose[0]:.2f}, {object_pose[1]:.2f}, {object_pose[2]:.2f}) "
-            f"Desired Pose: ({desired_pose_x:.2f}, {desired_pose_y:.2f}, {desired_pose_theta:.2f}) "
+            f"Robot Pose: ({robot_pose_x_OF:.2f}, {robot_pose_y_OF:.2f}, {robot_pose_theta_OF:.2f}) "
+            f"Object Pose: ({object_frame[0]:.2f}, {object_frame[1]:.2f}, {object_frame[2]:.2f}) "
+            f"Desired Pose: ({desired_pose_x_OF:.2f}, {desired_pose_y_OF:.2f}, {desired_pose_theta_OF:.2f}) "
             f"Error: ({error_x:.2f}, {error_y:.2f}, {error_final_angle:.2f}) "
             f"Error Angular: {error_angular:.2f} "
             f"v: {v:.2f} "
@@ -158,52 +158,38 @@ class PosePController(Node):
 
         return x, y, theta
 
-    def get_desired_pose(self, robot_pose: tuple, object_pose: tuple) -> tuple:
+    def get_desired_pose(self, robot_pose: tuple) -> tuple:
         """
-        Get desired pose for the robot
+        Get desired pose for the robot in the object frame
 
         Args:
-            robot_pose (tuple): x, y, theta of the robot
-            object_pose (tuple): x, y, theta of the object
+            robot_pose (tuple): x, y, theta of the robot in the object frame
 
         Returns:
             tuple: x, y, theta
         """
         # Check at which edge of the object the robot is. The object is a square of 0.42m
-        x, y, _ = self.transform_to_frame(robot_pose, object_pose)
+        x, y, _ = robot_pose
         radius = RADIUS
 
         # Check on which edge the robot is
         if x > radius:
-            x_desired, y_desired, theta_desired = self.transform_to_frame(
-                pose=(radius, 0, np.pi),
-                transform_frame=(0, 0, 0),
-                reference_frame=object_pose,
-            )
-            # self.get_logger().info("x")
+            x_desired = radius
+            y_desired = 0
         elif x < -radius:
-            x_desired, y_desired, theta_desired = self.transform_to_frame(
-                pose=(-radius, 0, 0),
-                transform_frame=(0, 0, 0),
-                reference_frame=object_pose,
-            )
-            # self.get_logger().info("-x")
+            x_desired = -radius
+            y_desired = 0
         elif y > radius:
-            x_desired, y_desired, theta_desired = self.transform_to_frame(
-                pose=(0, radius, -np.pi / 2),
-                transform_frame=(0, 0, 0),
-                reference_frame=object_pose,
-            )
-            # self.get_logger().info("y")
+            x_desired = 0
+            y_desired = radius
         elif y < -radius:
-            x_desired, y_desired, theta_desired = self.transform_to_frame(
-                pose=(0, -radius, np.pi / 2),
-                transform_frame=(0, 0, 0),
-                reference_frame=object_pose,
-            )
-            # self.get_logger().info("-y")
+            x_desired = 0
+            y_desired = -radius
+            x_desired, y_desired, theta_desired = (0, -radius, np.pi / 2)
         else:
-            x_desired, y_desired, theta_desired = robot_pose
+            x_desired, y_desired, _ = robot_pose
+
+        theta_desired = self.normalize_angle(np.arctan2(y_desired, x_desired) + np.pi)
 
         return x_desired, y_desired, theta_desired
 
@@ -211,7 +197,7 @@ class PosePController(Node):
         self, pose: tuple, transform_frame: tuple, reference_frame: tuple = (0, 0, 0)
     ) -> tuple:
         """
-        Transform the pose to the reference frame
+        Transform the pose in the reference frame to the transform frame
 
         Args:
             pose (tuple): x, y, theta
