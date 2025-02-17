@@ -9,10 +9,14 @@ from geometry_msgs.msg import Twist
 from msgs_interfaces.msg import MarkerPoseArray
 
 MAX_LINEAR_VELOCITY = 0.01  # m/s
-MAX_ANGULAR_VELOCITY = 2.84  # rad/s
+MAX_ANGULAR_VELOCITY = 0.01 # rad/s
+RADIUS = 0.42  # m
 
 IDs = {"/turtle2": 10, "/turtle4": 20, "/turtle6": 30, "object": 40}
 
+cmd_back = Twist()
+cmd_back.linear.x = -0.01
+cmd_back.angular.z = 0.0
 
 class PosePController(Node):
     """
@@ -36,9 +40,9 @@ class PosePController(Node):
         self._lock = threading.Lock()
 
         # P parameters
-        self.kp_linear = 0.2
-        self.kp_angular = 0.5
-        self.kp_final_angle = 0.5
+        self.kp_linear = 1.0
+        self.kp_angular = 5.0
+        self.kp_final_angle = 0.0
 
         # Time step
         self.dt = 0.1  # 100ms
@@ -107,9 +111,8 @@ class PosePController(Node):
             + self.kp_final_angle * error_final_angle
         )
 
-        ratio = abs(omega / v)
-        v = MAX_LINEAR_VELOCITY
-        omega *= ratio
+        # Limit the velocities
+        v, omega = self.check_limits(v, omega)
 
         with self._lock:
             self.linear_velocity = v
@@ -137,19 +140,13 @@ class PosePController(Node):
             return
 
         cmd = Twist()
-        if self.forward_counter < 20:
-            with self._lock:
-                cmd.linear.x = self.linear_velocity
-                cmd.angular.z = self.angular_velocity
-                self.forward_counter += 1
-        elif self.backward_counter < 5:
-            with self._lock:
-                cmd.linear.x = -self.linear_velocity
-                cmd.angular.z = 0.0
-                self.backward_counter += 1
-        else:
-            self.forward_counter = 0
-            self.backward_counter = 0
+        # if self.linear_velocity < 0.01:
+        #     with self._lock:
+        #         self.cmd_publisher.publish(cmd_back)
+
+        with self._lock:
+            cmd.linear.x = self.linear_velocity
+            cmd.angular.z = self.angular_velocity
 
         self.cmd_publisher.publish(cmd)
         self.pose_callback_counter += 1
@@ -187,7 +184,7 @@ class PosePController(Node):
         # Check at which edge of the object the robot is. The object is a square of 0.42m
         x, y, _ = self.transform_to_frame(robot_pose, object_pose)
         # self.get_logger().info(f"{x:.2f}, {y:.2f}")
-        radius = 0.4
+        radius = RADIUS
 
         # Check on which edge the robot is
         if x > radius:
@@ -273,6 +270,7 @@ class PosePController(Node):
             float: Normalized angle
         """
         return (angle + np.pi) % (2 * np.pi) - np.pi
+
     
     def shortest_angular_distance(self, x, y):
         """
@@ -286,6 +284,39 @@ class PosePController(Node):
             float: Shortest angular
         """
         return min(y-x, y-x+2*np.pi, y-x-2*np.pi, key=abs)
+    
+    def check_limits(self, v: float, omega: float) -> tuple:
+        """
+        Check the limits of the velocities
+
+        Args:
+            v (float): Linear velocity
+            omega (float): Angular velocity
+
+        Returns:
+            tuple: Linear velocity, Angular velocity
+        """
+        if v > MAX_LINEAR_VELOCITY:
+            ratio = abs(MAX_LINEAR_VELOCITY / v)
+            v = MAX_LINEAR_VELOCITY
+            omega = omega * ratio 
+
+        elif v < -MAX_LINEAR_VELOCITY:
+            ratio = abs(MAX_LINEAR_VELOCITY / v)
+            v = -MAX_LINEAR_VELOCITY
+            omega = omega * ratio
+
+        if omega > MAX_ANGULAR_VELOCITY:
+            ratio = abs(MAX_ANGULAR_VELOCITY / omega)
+            omega = MAX_ANGULAR_VELOCITY
+            v = v * ratio
+
+        elif omega < -MAX_ANGULAR_VELOCITY:
+            ratio = abs(MAX_ANGULAR_VELOCITY / omega)
+            omega = -MAX_ANGULAR_VELOCITY
+            v = v * ratio
+
+        return v, omega
 
 
 def main(args=None):
