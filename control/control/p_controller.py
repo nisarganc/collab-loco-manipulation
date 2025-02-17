@@ -42,7 +42,6 @@ class PosePController(Node):
         # P parameters
         self.kp_linear = 1.0
         self.kp_angular = 5.0
-        self.kp_final_angle = 0.0
 
         # Time step
         self.dt = 0.1  # 100ms
@@ -71,8 +70,6 @@ class PosePController(Node):
             self.dt, self.controller_callback, callback_group=callback_group
         )
         self.pose_callback_counter = 0
-        self.forward_counter = 0
-        self.backward_counter = 0
 
     def pose_callback(self, msg: MarkerPoseArray):
         """
@@ -99,16 +96,9 @@ class PosePController(Node):
         error_linear = np.sqrt(error_x**2 + error_y**2)
         error_angular = self.normalize_angle(np.arctan2(error_y, error_x) - robot_pose_theta)
 
-        # Final angle
-        error_final_angle = self.shortest_angular_distance(
-            robot_pose_theta, desired_pose_theta
-        )
-
         v = self.kp_linear * error_linear
-
         omega = (
             self.kp_angular * error_angular
-            + self.kp_final_angle * error_final_angle
         )
 
         # Limit the velocities
@@ -140,10 +130,6 @@ class PosePController(Node):
             return
 
         cmd = Twist()
-        # if self.linear_velocity < 0.01:
-        #     with self._lock:
-        #         self.cmd_publisher.publish(cmd_back)
-
         with self._lock:
             cmd.linear.x = self.linear_velocity
             cmd.angular.z = self.angular_velocity
@@ -183,7 +169,6 @@ class PosePController(Node):
         """
         # Check at which edge of the object the robot is. The object is a square of 0.42m
         x, y, _ = self.transform_to_frame(robot_pose, object_pose)
-        # self.get_logger().info(f"{x:.2f}, {y:.2f}")
         radius = RADIUS
 
         # Check on which edge the robot is
