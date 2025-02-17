@@ -14,6 +14,7 @@ RADIUS = 0.4  # m
 
 IDs = {"/turtle2": 10, "/turtle4": 20, "/turtle6": 30, "object": 40}
 
+
 class PosePController(Node):
     """
     Class for the Pose P Controller
@@ -45,6 +46,8 @@ class PosePController(Node):
         # Velocities
         self.linear_velocity = 0.0
         self.angular_velocity = 0.0
+        
+        self.segment = []
 
         # callback group
         callback_group = ReentrantCallbackGroup()
@@ -83,7 +86,9 @@ class PosePController(Node):
 
         robot_pose_OF = self.transform_to_frame(robot_pose_WF, object_frame)
 
-        desired_pose_OF = self.get_desired_pose(robot_pose_OF)
+        self.segment = self.generate_desired_segment(robot_pose_OF, num_of_points=2, num_of_segments=4)
+        self.get_logger().info(f"Desired Segment Coordinates: {self.segment}")
+        desired_pose_OF = self.get_desired_pose()
 
         robot_pose_x_OF, robot_pose_y_OF, robot_pose_theta_OF = robot_pose_OF
         desired_pose_x_OF, desired_pose_y_OF, desired_pose_theta_OF = desired_pose_OF
@@ -136,7 +141,7 @@ class PosePController(Node):
             cmd.linear.x = self.linear_velocity
             cmd.angular.z = self.angular_velocity
 
-        self.cmd_publisher.publish(cmd)
+        # self.cmd_publisher.publish(cmd)
         self.pose_callback_counter += 1
 
     def get_pose(self, msg: MarkerPoseArray, id: int) -> tuple:
@@ -158,37 +163,15 @@ class PosePController(Node):
 
         return x, y, theta
 
-    def get_desired_pose(self, robot_pose: tuple) -> tuple:
+    def get_desired_pose(self) -> tuple:
         """
         Get desired pose for the robot in the object frame
-
-        Args:
-            robot_pose (tuple): x, y, theta of the robot in the object frame
 
         Returns:
             tuple: x, y, theta
         """
-        # Check at which edge of the object the robot is. The object is a square of 0.42m
-        x, y, _ = robot_pose
-        radius = RADIUS
 
-        # Check on which edge the robot is
-        if x > radius:
-            x_desired = radius
-            y_desired = 0
-        elif x < -radius:
-            x_desired = -radius
-            y_desired = 0
-        elif y > radius:
-            x_desired = 0
-            y_desired = radius
-        elif y < -radius:
-            x_desired = 0
-            y_desired = -radius
-            x_desired, y_desired, theta_desired = (0, -radius, np.pi / 2)
-        else:
-            x_desired, y_desired, _ = robot_pose
-
+        x_desired, y_desired = self.segment[len(self.segment) // 2]
         theta_desired = self.normalize_angle(np.arctan2(y_desired, x_desired) + np.pi)
 
         return x_desired, y_desired, theta_desired
@@ -290,6 +273,62 @@ class PosePController(Node):
 
         return v, omega
 
+    def generate_desired_segment(
+        self, robot_pose: tuple, radius: float = RADIUS, num_of_points: int = 2, num_of_segments: int = 4
+    ) -> list:
+        """
+        Generate the desired coordinates for the robot as a segment
+
+        Args:
+            robot_pose (tuple): x, y, theta of the robot in the object frame
+            radius (float): Radius of the object
+            num_of_points (int): Number of points to generate
+            num_of_segments (int): Number of segments
+
+        Returns:
+            list: List of coordinates in the object frame in the segment
+        """
+        x, y, _ = robot_pose
+        corners = [
+            (radius, radius),
+            (radius, -radius),
+            (-radius, -radius),
+            (-radius, radius),
+        ]
+
+        coordinates = []
+        segment = []
+
+        for edge in range(4):
+            p1 = corners[edge]
+            p2 = corners[(edge + 1) % 4]
+
+            for i in range(num_of_points + 1):
+                x = p1[0] + (p2[0] - p1[0]) * i / num_of_points
+                y = p1[1] + (p2[1] - p1[1]) * i / num_of_points
+                coordinates.append([x, y])
+
+        self.get_logger().info(f"Coordinates: {coordinates}")
+
+        # Check on which edge the robot is
+        if x > radius:
+            segment = 0
+        elif x < -radius:
+            segment = 2
+        elif y > radius:
+            segment = 3
+        elif y < -radius:
+            segment = 1
+
+        num_per_segment = num_of_points // num_of_segments
+
+        for i in range(num_of_segments):
+            if i == segment:
+                self.get_logger().info(f"Segment: {segment}")
+                for j in range(num_per_segment):
+                    segment.append(coordinates[i * num_per_segment + j])
+
+        return segment
 
 def main(args=None):
     rclpy.init(args=args)
