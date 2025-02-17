@@ -37,8 +37,8 @@ class PosePController(Node):
 
         # P parameters
         self.kp_linear = 0.2
-        self.kp_angular = 0.4
-        self.kp_final_angle = 0.2
+        self.kp_angular = 0.5
+        self.kp_final_angle = 0.5
 
         # Time step
         self.dt = 0.1  # 100ms
@@ -93,7 +93,7 @@ class PosePController(Node):
         error_y = desired_pose_y - robot_pose_y
 
         error_linear = np.sqrt(error_x**2 + error_y**2)
-        error_angular = np.arctan2(error_y, error_x)
+        error_angular = self.normalize_angle(np.arctan2(error_y, error_x) - robot_pose_theta)
 
         # Final angle
         error_final_angle = self.shortest_angular_distance(
@@ -145,13 +145,13 @@ class PosePController(Node):
         elif self.backward_counter < 5:
             with self._lock:
                 cmd.linear.x = -self.linear_velocity
-                cmd.angular.z = -self.angular_velocity
+                cmd.angular.z = 0.0
                 self.backward_counter += 1
         else:
             self.forward_counter = 0
             self.backward_counter = 0
 
-        # self.cmd_publisher.publish(cmd)
+        self.cmd_publisher.publish(cmd)
         self.pose_callback_counter += 1
 
     def get_pose(self, msg: MarkerPoseArray, id: int) -> tuple:
