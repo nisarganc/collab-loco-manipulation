@@ -19,8 +19,7 @@
 #include <msgs_interfaces/msg/marker_pose.hpp>
 #include <msgs_interfaces/msg/marker_pose_array.hpp>
 
-#include <msgs_interfaces/msg/point.hpp>
-#include <msgs_interfaces/msg/marker_corner.hpp>
+#include <msgs_interfaces/msg/marker_point.hpp>
 #include <msgs_interfaces/msg/scene_info.hpp>
 
 #include <msgs_interfaces/srv/camera_params.hpp>
@@ -51,7 +50,7 @@ class ArucoPoseEstimation : public rclcpp::Node {
             aruco_turtle[30] = "turtle6";
             aruco_turtle[40] = "object";
 
-            cap = std::make_shared<cv::VideoCapture>(5);
+            cap = std::make_shared<cv::VideoCapture>(6);
             // cap.set(cv::CAP_PROP_FRAME_HEIGHT, image_height);            
             // cap.set(cv::CAP_PROP_FRAME_WIDTH, image_width);
             // cap.set(cv::CAP_PROP_FPS, 5);
@@ -89,7 +88,7 @@ class ArucoPoseEstimation : public rclcpp::Node {
     private:
         rclcpp::Publisher<msgs_interfaces::msg::MarkerPoseArray>::SharedPtr marker_pose_publisher_;
 
-        msgs_interfaces::msg::MarkerCorner marker0_corner;
+        msgs_interfaces::msg::MarkerPoint marker0_point;
         rclcpp::Publisher<msgs_interfaces::msg::SceneInfo>::SharedPtr scene_publisher_;
 
         rclcpp::Service<msgs_interfaces::srv::CameraParams>::SharedPtr camera_params_service_;
@@ -121,14 +120,13 @@ class ArucoPoseEstimation : public rclcpp::Node {
                 for (size_t i = 0; i < markerIds.size(); ++i) {
                     if (markerIds[i] == 0) {
 
-                        marker0_corner.id = 0;
-                        msgs_interfaces::msg::Point corner_point;
-                        for (int j = 0; j < markerCorners[i].size(); j++) {
-                            corner_point.x = markerCorners[i][j].x;
-                            corner_point.y = markerCorners[i][j].y;
-                            marker0_corner.corner_points.push_back(corner_point);
-                        }
+                        marker0_point.id = 0;
+                        cv::Point2f DetectedPoint = (markerCorners[i][0] + markerCorners[i][1] 
+                                                    + markerCorners[i][2] + markerCorners[i][3]) / 4;
 
+                        marker0_point.centre_point.x = DetectedPoint.x;
+                        marker0_point.centre_point.y = DetectedPoint.y;
+                        
                         rvec0 = cv::Mat(rvecs[i]);
                         tvec0 = cv::Mat(tvecs[i]);
 
@@ -205,7 +203,7 @@ class ArucoPoseEstimation : public rclcpp::Node {
                 msgs_interfaces::msg::MarkerPoseArray marker_pose_array_msg;
                 msgs_interfaces::msg::SceneInfo scene_msg;
 
-                scene_msg.marker_corners.push_back(marker0_corner);
+                scene_msg.marker_points.push_back(marker0_point);
                 for (int i = 0; i < markerIds.size(); ++i) {
                     if (markerIds[i] != 0) {
 
@@ -234,15 +232,14 @@ class ArucoPoseEstimation : public rclcpp::Node {
                         marker_pose.theta = rvec_rel.at<double>(2);
                         marker_pose_array_msg.poses.push_back(marker_pose);
 
-                        msgs_interfaces::msg::Point corner_point;
-                        msgs_interfaces::msg::MarkerCorner marker_corner;
-                        marker_corner.id = markerIds[i];
-                        for (int j = 0; j < markerCorners[i].size(); j++) {
-                            corner_point.x = markerCorners[i][j].x;
-                            corner_point.y = markerCorners[i][j].y;
-                            marker_corner.corner_points.push_back(corner_point);
-                        }
-                        scene_msg.marker_corners.push_back(marker_corner);
+                        msgs_interfaces::msg::MarkerPoint marker_point;
+                        marker_point.id = markerIds[i];
+                        cv::Point2f detected_point = ( markerCorners[i][0] + markerCorners[i][1] 
+                                        + markerCorners[i][2] + markerCorners[i][3] ) / 4;   
+                        marker_point.centre_point.x = detected_point.x;
+                        marker_point.centre_point.y = detected_point.y;                       
+                        
+                        scene_msg.marker_points.push_back(marker_point);
 
                         // RCLCPP_INFO(this->get_logger(), "marker: %d %f %f %f", markerIds[i], tvec_rel.at<double>(0), tvec_rel.at<double>(1), rvec_rel.at<double>(2));
                     }
@@ -275,7 +272,7 @@ class ArucoPoseEstimation : public rclcpp::Node {
                 scene_publisher_->publish(scene_msg);
                 
             }   
-        }
+    }
 };
 
 int main(int argc, char *argv[]) {

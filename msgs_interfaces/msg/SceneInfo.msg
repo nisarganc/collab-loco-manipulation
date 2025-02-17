@@ -1,2 +1,2 @@
 sensor_msgs/Image image
-MarkerCorner[] marker_corners
+MarkerPoint[] marker_points

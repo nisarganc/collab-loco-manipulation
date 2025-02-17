@@ -1,7 +1,13 @@
+pose_estimation:
+- change bgr sensor msg to rgb?
+- change the webcam name instead of dynamic number
+- create a namespace for the mapping of ids with turtles
+- pass cam intrinsics as parameter
+
 scene_perception:
 - implement ov object detection to obtain obstacles bounding boxes 
     - remove boxes around robots, markers, and object
-    - track the obstacles-objects
+    - track the obstacles-objects and detect changes
     - transform to world frame 
 - segment manipulating object
     - obtain countour
@@ -39,9 +45,4 @@ repository organisation:
 - remove unnecessary headers and info
 - add file purpose headers
 
-pose_estimation:
-- change bgr sensor msg to rgb?
-- change the webcam name instead of dynamic number
-- create a namespace for the mapping of ids with turtles
-- pass cam intrinsics as parameter
 

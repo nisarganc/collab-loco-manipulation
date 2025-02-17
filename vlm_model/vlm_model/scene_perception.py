@@ -76,61 +76,74 @@ class ScenePerception(Node):
 
         with torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
             if self.first:
-                self.first = False
+                # self.first = False
                 dino_output = self.grounding_dino(gd_image,  candidate_labels=["objects."], threshold=0.3)
                 # [{'score': 0.74167400598526, 'label': 'objects.', 'box': {'xmin': 644, 'ymin': 570, 'xmax': 1122, 'ymax': 1033}}, 
                 # {'score': 0.5053098797798157, 'label': 'objects.', 'box': {'xmin': 1772, 'ymin': 909, 'xmax': 1884, 'ymax': 1047}}, 
                 # {'score': 0.3090237081050873, 'label': 'objects.', 'box': {'xmin': 808, 'ymin': 734, 'xmax': 959, 'ymax': 891}}]
-                
-                bboxes_list = []
-                for output in dino_output:
-                    box = output['box']
-                    bbox = [box['xmin'], box['ymin'], box['xmax'], box['ymax']]
-                    bboxes_list.append(bbox)
-                bboxes = np.array(bboxes_list)     
 
-                # object = []
-                # other_arucos = []
-                # for marker_corner in msg.marker_corners:
-                #     if marker_corner.id == 40:
-                #         object.append(marker_corner.corner_points[0])
-                #         object.append(marker_corner.corner_points[1])
-                #         other_arucos.append(point)
-                #     else:
-                #         point = [marker_corner.corner_points[0], marker_corner.corner_points[1]]
-                #         other_arucos.append(point)
-                
-                # for result in results:
-                #     box = result['box']
-                #     # check if any of the aruco points are inside the box. If so, remove the box. If not, add the box to clean_results
-                #     for aruco in other_arucos:
-                #         if aruco[0] > box['xmin'] and aruco[0] < box['xmax'] and aruco[1] > box['ymin'] and aruco[1] < box['ymax']:
-                #             # remove box from results
-                #             del results[results.index(result)]    
+                all_bboxes = []
+                obstacles_bboxes = []
+                object_bbox = []
+                for output in dino_output:
+                    bbox = [output['box']['xmin'], output['box']['ymin'], output['box']['xmax'], output['box']['ymax']]
+                    found = False
+                    for marker_point in msg.marker_points:
+                            for corner in marker_point.corner_points:
+                                if (corner.x > bbox[0] and corner.x < bbox[2]) and corner.y > bbox[1] and corner.y < bbox[3]:
+                                    if marker_point.id == 40:
+                                        object_bbox = bbox
+                                    found = True
+                                    break
+                    all_bboxes.append(bbox)            
+                    if not found:
+                        obstacles_bboxes.append(bbox)  
+
+                all_bboxes = np.array(all_bboxes)
+                obstacles_bboxes = np.array(obstacles_bboxes)  
+                object_bbox = np.array(object_bbox)      
                             
                 self.sam2.load_first_frame(cv_image)
-                for i, bbox in enumerate(bboxes):
-                    _, out_obj_ids, video_res_masks = self.sam2.add_new_prompt(
-                                                                        frame_idx=0, 
-                                                                        obj_id=i,
-                                                                        bbox=bbox)
-                
-                for bbox in bboxes:
-                    cv_image = cv2.rectangle(cv_image, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (255, 0, 0), 2) 
+                # for i, bbox in enumerate(obstacles_bboxes):
+                #     _, out_obj_ids, video_res_masks = self.sam2.add_new_prompt(
+                #                                                         frame_idx=0, 
+                #                                                         obj_id=i,
+                #                                                         bbox=bbox)
+                _, obj_id, object_mask = self.sam2.add_new_prompt(
+                                                            frame_idx=0, 
+                                                            obj_id=40,
+                                                            bbox=object_bbox)  
 
-            else:
-                out_obj_ids, video_res_masks = self.sam2.track(cv_image)
-                video_res_masks = video_res_masks.cpu().float() # (num_objects, C, H, W)
-                video_res_masks = video_res_masks.permute(0, 2, 3, 1) # (num_objects, H, W, C)
-                video_res_masks = video_res_masks.mean(axis=-1) # (num_objects, H, W)
-                video_res_masks = (video_res_masks > 0).int()
-                masks = video_res_masks.numpy().astype(np.uint8)
+                # ToDO: obtain polygon countour of the object
+                object_mask = object_mask[0].cpu().float() # (num_objects, C, H, W)-> (C, H, W)
+                object_mask = object_mask.permute(1, 2, 0)
+                object_mask = object_mask.mean(axis=-1)
+                object_mask = (object_mask > 0).int()
+                object_mask = object_mask.numpy().astype(np.uint8)
+
+                mask_uint8 = (object_mask * 255).astype(np.uint8)
+                contours, _ = cv2.findContours(mask_uint8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+                print(contours)
                 
-                # iterate over masks
-                for mask in bboxes, masks:
-                    mask_uint8 = (mask * 255).astype(np.uint8)
-                    contours, _ = cv2.findContours(mask_uint8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                    cv2.drawContours(cv_image, contours, -1, (255, 0, 0), 2)
+                for bbox in obstacles_bboxes:
+                    cv_image = cv2.rectangle(cv_image, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (255, 0, 0), 2) 
+                cv2.drawContours(cv_image, contours, -1, (255, 255, 0), 2)
+                exit()
+
+            # else:
+            #     out_obj_ids, video_res_masks = self.sam2.track(cv_image)
+            #     video_res_masks = video_res_masks.cpu().float() # (num_objects, C, H, W)
+            #     video_res_masks = video_res_masks.permute(0, 2, 3, 1) # (num_objects, H, W, C)
+            #     video_res_masks = video_res_masks.mean(axis=-1) # (num_objects, H, W)
+            #     video_res_masks = (video_res_masks > 0).int()
+            #     masks = video_res_masks.numpy().astype(np.uint8)
+                
+            #     # iterate over masks
+            #     for mask in obstacles_bboxes, masks:
+            #         mask_uint8 = (mask * 255).astype(np.uint8)
+            #         contours, _ = cv2.findContours(mask_uint8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            #         cv2.drawContours(cv_image, contours, -1, (255, 0, 0), 2)
 
         annotated_frame_msg = self.cv_bridge.cv2_to_imgmsg(cv2.cvtColor(cv_image, cv2.COLOR_RGB2BGR))
         self.annotated_frame_pub.publish(annotated_frame_msg)
