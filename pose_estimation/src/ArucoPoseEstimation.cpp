@@ -19,10 +19,27 @@
 #include <msgs_interfaces/msg/marker_pose.hpp>
 #include <msgs_interfaces/msg/marker_pose_array.hpp>
 
+#include <msgs_interfaces/msg/point.hpp>
+#include <msgs_interfaces/msg/marker_corner.hpp>
+#include <msgs_interfaces/msg/scene_info.hpp>
+
+#include <msgs_interfaces/srv/camera_params.hpp>
+
 using namespace std;
 std::map<int, std::string> aruco_turtle;
 
-const double ARROW_LENGTH = 0.15;
+const double ARROW_LENGTH = 0.05;
+const int image_height = 1080; //rows
+const int image_width = 1920; //columns
+const double fx = 1019.66062; 
+const double cx = 944.551199; 
+const double fy = 1021.42301; 
+const double cy = 460.701976;
+// distCoeffs.at<double>(0) = 0.08621978;
+// distCoeffs.at<double>(1) = 0.08457004;
+// distCoeffs.at<double>(2) = 0.00429467;
+// distCoeffs.at<double>(3) = -0.10166391;
+// distCoeffs.at<double>(4) = -0.06502892;
 
 class ArucoPoseEstimation : public rclcpp::Node {
     public:
@@ -34,10 +51,10 @@ class ArucoPoseEstimation : public rclcpp::Node {
             aruco_turtle[30] = "turtle6";
             aruco_turtle[40] = "object";
 
-            // read camera frames and print fps
-            cap = std::make_shared<cv::VideoCapture>(0);
-            double fps = cap->get(cv::CAP_PROP_FPS);
-            RCLCPP_INFO(this->get_logger(), "Camera FPS: %f", fps);
+            cap = std::make_shared<cv::VideoCapture>(5);
+            // cap.set(cv::CAP_PROP_FRAME_HEIGHT, image_height);            
+            // cap.set(cv::CAP_PROP_FRAME_WIDTH, image_width);
+            // cap.set(cv::CAP_PROP_FPS, 5);
 
             if (!cap->isOpened()) {
                 RCLCPP_ERROR(this->get_logger(), "Failed to open camera");
@@ -46,26 +63,16 @@ class ArucoPoseEstimation : public rclcpp::Node {
 
             marker_pose_publisher_ = this->create_publisher<msgs_interfaces::msg::MarkerPoseArray>(
                 "aruco_poses", 10);
+            scene_publisher_ = this->create_publisher<msgs_interfaces::msg::SceneInfo>(
+                "scene_info", 10);
             timer_ = this->create_wall_timer(
                 std::chrono::milliseconds(100), 
                 std::bind(&ArucoPoseEstimation::PosesCallback, this));
 
             dictionary = cv::aruco::getPredefinedDictionary(cv::aruco::DICT_6X6_50);
-
-            int image_width = 1920;
-            int image_height = 1080;
-
-            double fx = 1019.66062; 
-            double cx = 944.551199; 
-            double fy = 1021.42301; 
-            double cy = 460.701976; 
+ 
             cameraMatrix = (cv::Mat_<double>(3,3) << fx, 0.0, cx, 0.0, fy, cy, 0.0, 0.0, 1.0);
             distCoeffs = cv::Mat::zeros(1, 5, CV_32F);
-            // distCoeffs.at<double>(0) = 0.08621978;
-            // distCoeffs.at<double>(1) = 0.08457004;
-            // distCoeffs.at<double>(2) = 0.00429467;
-            // distCoeffs.at<double>(3) = -0.10166391;
-            // distCoeffs.at<double>(4) = -0.06502892;
 
             bool success = false;
             while (!success) {
@@ -73,12 +80,20 @@ class ArucoPoseEstimation : public rclcpp::Node {
                 success = WorldFrame();
             }
 
-            ProjectGoalPose(1.0, 3.0, -1.5);
+            camera_params_service_ = this->create_service<msgs_interfaces::srv::CameraParams>(
+                "camera_params_service", std::bind(&ArucoPoseEstimation::CameraParamsCallback, 
+                this, std::placeholders::_1, std::placeholders::_2));
 
         }
 
     private:
         rclcpp::Publisher<msgs_interfaces::msg::MarkerPoseArray>::SharedPtr marker_pose_publisher_;
+
+        msgs_interfaces::msg::MarkerCorner marker0_corner;
+        rclcpp::Publisher<msgs_interfaces::msg::SceneInfo>::SharedPtr scene_publisher_;
+
+        rclcpp::Service<msgs_interfaces::srv::CameraParams>::SharedPtr camera_params_service_;
+
         rclcpp::TimerBase::SharedPtr timer_;
         std::shared_ptr<cv::VideoCapture> cap;
         cv::Ptr<cv::aruco::Dictionary> dictionary;
@@ -86,7 +101,7 @@ class ArucoPoseEstimation : public rclcpp::Node {
         std::vector<int> markerIds;
         std::vector<std::vector<cv::Point2f>> markerCorners;
         std::vector<cv::Vec3d> rvecs, tvecs;
-        cv::Mat projectedGoalPoint2D, projectedArrowEndPoint2D;
+        std::vector<double> T0_values;
 
         bool WorldFrame() {
 
@@ -94,17 +109,26 @@ class ArucoPoseEstimation : public rclcpp::Node {
                 RCLCPP_WARN(this->get_logger(), "Failed to capture frame");
                 return false;
             }
+            // cv::cvtColor(frame, frame, cv::COLOR_BGR2RGB);
 
             cv::aruco::detectMarkers(frame, dictionary, markerCorners, markerIds);
-            
+
             if (!markerIds.empty()) {
 
                 cv::Mat rvec0, tvec0, R0;
 
                 cv::aruco::estimatePoseSingleMarkers(markerCorners, 0.16, cameraMatrix, distCoeffs, rvecs, tvecs);                
-
                 for (size_t i = 0; i < markerIds.size(); ++i) {
                     if (markerIds[i] == 0) {
+
+                        marker0_corner.id = 0;
+                        msgs_interfaces::msg::Point corner_point;
+                        for (int j = 0; j < markerCorners[i].size(); j++) {
+                            corner_point.x = markerCorners[i][j].x;
+                            corner_point.y = markerCorners[i][j].y;
+                            marker0_corner.corner_points.push_back(corner_point);
+                        }
+
                         rvec0 = cv::Mat(rvecs[i]);
                         tvec0 = cv::Mat(tvecs[i]);
 
@@ -132,6 +156,12 @@ class ArucoPoseEstimation : public rclcpp::Node {
 
                         RCLCPP_INFO(this->get_logger(), "World Frame Found");
 
+                        for (int i = 0; i < T0.rows; i++) {
+                            for (int j = 0; j < T0.cols; j++) {
+                                T0_values.push_back(T0.at<double>(i, j));
+                            }
+                        }
+
                         return true; 
                     }
                 }
@@ -140,29 +170,22 @@ class ArucoPoseEstimation : public rclcpp::Node {
             return false;
         }
 
-        void ProjectGoalPose(double x, double y, double yaw) {
+        void CameraParamsCallback(
+            const std::shared_ptr<msgs_interfaces::srv::CameraParams::Request> request,
+            std::shared_ptr<msgs_interfaces::srv::CameraParams::Response> response) {
 
-            // Convert goal pose to homogeneous coordinates
-            cv::Mat goalPoseHomogeneous = cv::Mat::ones(4, 1, CV_64F);
-            goalPoseHomogeneous.at<double>(0) = x;
-            goalPoseHomogeneous.at<double>(1) = y;
-            goalPoseHomogeneous.at<double>(2) = 0; // z
+            response->image_width = image_width;
+            response->image_height = image_height;
 
-            // Calculate the arrow's end in the world frame
-            cv::Mat arrowEndHomogeneous = cv::Mat::ones(4, 1, CV_64F);
-            arrowEndHomogeneous.at<double>(0) = x + ARROW_LENGTH * cos(yaw);
-            arrowEndHomogeneous.at<double>(1) = y + ARROW_LENGTH * sin(yaw);
-            arrowEndHomogeneous.at<double>(2) = 0;
+            response->fx = fx;
+            response->fy = fy;
+            response->cx = cx;
+            response->cy = cy;
 
-            // Transform the goal pose and arrow end into the camera coordinate system
-            cv::Mat goalPoseCamera = T0 * goalPoseHomogeneous;
-            cv::Mat arrowEndCamera = T0 * arrowEndHomogeneous;
+            for (int i = 0; i < T0_values.size(); i++) {
+                response->t0[i] = T0_values[i];
+            }
 
-            // Project these points into the image
-            cv::projectPoints(goalPoseCamera.rowRange(0, 3).t(), cv::Mat::zeros(3, 1, CV_64F), 
-                            cv::Mat::zeros(3, 1, CV_64F), cameraMatrix, distCoeffs, projectedGoalPoint2D);
-            cv::projectPoints(arrowEndCamera.rowRange(0, 3).t(), cv::Mat::zeros(3, 1, CV_64F), 
-                            cv::Mat::zeros(3, 1, CV_64F), cameraMatrix, distCoeffs, projectedArrowEndPoint2D);
         }
 
 
@@ -172,14 +195,17 @@ class ArucoPoseEstimation : public rclcpp::Node {
                 RCLCPP_WARN(this->get_logger(), "Failed to capture frame");
                 return;
             }
+            // cv::cvtColor(frame, frame, cv::COLOR_BGR2RGB);
 
-            cv::aruco::detectMarkers(frame, dictionary, markerCorners, markerIds);
+            cv::aruco::detectMarkers(frame, dictionary, markerCorners, markerIds);            
             
             if (!markerIds.empty()) {
 
                 cv::aruco::estimatePoseSingleMarkers(markerCorners, 0.16, cameraMatrix, distCoeffs, rvecs, tvecs);
                 msgs_interfaces::msg::MarkerPoseArray marker_pose_array_msg;
+                msgs_interfaces::msg::SceneInfo scene_msg;
 
+                scene_msg.marker_corners.push_back(marker0_corner);
                 for (int i = 0; i < markerIds.size(); ++i) {
                     if (markerIds[i] != 0) {
 
@@ -208,8 +234,20 @@ class ArucoPoseEstimation : public rclcpp::Node {
                         marker_pose.theta = rvec_rel.at<double>(2);
                         marker_pose_array_msg.poses.push_back(marker_pose);
 
+                        msgs_interfaces::msg::Point corner_point;
+                        msgs_interfaces::msg::MarkerCorner marker_corner;
+                        marker_corner.id = markerIds[i];
+                        for (int j = 0; j < markerCorners[i].size(); j++) {
+                            corner_point.x = markerCorners[i][j].x;
+                            corner_point.y = markerCorners[i][j].y;
+                            marker_corner.corner_points.push_back(corner_point);
+                        }
+                        scene_msg.marker_corners.push_back(marker_corner);
+
                         // RCLCPP_INFO(this->get_logger(), "marker: %d %f %f %f", markerIds[i], tvec_rel.at<double>(0), tvec_rel.at<double>(1), rvec_rel.at<double>(2));
                     }
+
+                    marker_pose_publisher_->publish(marker_pose_array_msg);
                 
                     // cv::aruco::drawDetectedMarkers(frame, markerCorners, markerIds);
                     // cv::aruco::drawAxis(frame, cameraMatrix, distCoeffs, rvecs[i], tvecs[i], 0.1);
@@ -230,28 +268,13 @@ class ArucoPoseEstimation : public rclcpp::Node {
                     // cv::arrowedLine(frame, centrePoint, midy, cv::Scalar(0, 255, 0), 3);
                     cv::circle(frame, centrePoint, 2, cv::Scalar(255, 0, 0), 6);
                     cv::putText(frame, aruco_turtle[markerIds[i]], cornerPointy, cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(0, 0, 255), 2);
-
-                    // Draw the goal pose and yaw arrow
-                    cv::Point goalPoint2D(
-                        static_cast<int>(projectedGoalPoint2D.at<double>(0)),
-                        static_cast<int>(projectedGoalPoint2D.at<double>(1))
-                    );
-                    cv::Point arrowEndPoint2D(
-                        static_cast<int>(projectedArrowEndPoint2D.at<double>(0)),
-                        static_cast<int>(projectedArrowEndPoint2D.at<double>(1))
-                    );
-                    cv::arrowedLine(frame, goalPoint2D, arrowEndPoint2D, cv::Scalar(0, 0, 255), 2, cv::LINE_AA, 0, 0.2);
-                    cv::putText(frame, "Goal", arrowEndPoint2D + cv::Point(5, -5), cv::FONT_HERSHEY_SIMPLEX, 1,
-                                cv::Scalar(0, 0, 255), 2);
                 }
 
-                marker_pose_array_msg.image = *cv_bridge::CvImage(std_msgs::msg::Header(), "bgr8", frame).toImageMsg();
-
-                marker_pose_publisher_->publish(marker_pose_array_msg);
-            }
-
-            cv::imshow("Aruco Pose Estimation", frame);
-            cv::waitKey(1);
+                // cv::cvtColor(frame, frame, cv::COLOR_RGB2BGR);
+                scene_msg.image = *cv_bridge::CvImage(std_msgs::msg::Header(), "bgr8", frame).toImageMsg();
+                scene_publisher_->publish(scene_msg);
+                
+            }   
         }
 };
 
