@@ -35,7 +35,7 @@ class ArucoPoseEstimation : public rclcpp::Node {
             aruco_turtle[40] = "object";
 
             // read camera frames and print fps
-            cap = std::make_shared<cv::VideoCapture>(4);
+            cap = std::make_shared<cv::VideoCapture>(0);
             double fps = cap->get(cv::CAP_PROP_FPS);
             RCLCPP_INFO(this->get_logger(), "Camera FPS: %f", fps);
 
