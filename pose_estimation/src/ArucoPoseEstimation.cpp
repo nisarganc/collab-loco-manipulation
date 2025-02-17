@@ -96,7 +96,7 @@ class ArucoPoseEstimation : public rclcpp::Node {
         rclcpp::TimerBase::SharedPtr timer_;
         std::shared_ptr<cv::VideoCapture> cap;
         cv::Ptr<cv::aruco::Dictionary> dictionary;
-        cv::Mat goal_pose, frame, cameraMatrix, distCoeffs, T0, rvec, tvec, Ri, Ti, T_rel, rvec_rel, tvec_rel;
+        cv::Mat goal_pose, frame, cameraMatrix, distCoeffs, T0, T4, rvec, tvec, Ri, Ti, T_rel, rvec_rel, tvec_rel;
         std::vector<int> markerIds;
         std::vector<std::vector<cv::Point2f>> markerCorners;
         std::vector<cv::Vec3d> rvecs, tvecs;
@@ -204,8 +204,46 @@ class ArucoPoseEstimation : public rclcpp::Node {
                 msgs_interfaces::msg::SceneInfo scene_msg;
 
                 scene_msg.marker_points.push_back(marker0_point);
+                for (int i = 0; i < markerIds.size(); ++i)
+                {
+                    if (markerIds[i] == 40) {
+                        rvec = cv::Mat(rvecs[i]);
+                        tvec = cv::Mat(tvecs[i]);
+
+                        // Compute rotation matrix
+                        cv::Rodrigues(rvec, Ri);
+                        T4 = cv::Mat::eye(4, 4, CV_64F);
+
+                        // Fill in rotation and translation for m0Xc and m1Xc
+                        Ri.copyTo(T4.rowRange(0, 3).colRange(0, 3));
+                        tvec.copyTo(T4.rowRange(0, 3).col(3));
+                        T4.at<double>(3, 0) = 0;
+                        T4.at<double>(3, 1) = 0;
+                        T4.at<double>(3, 2) = 0;
+
+                        cv::Rodrigues(T4.rowRange(0, 3).colRange(0, 3), rvec_rel);
+                        tvec_rel = T4.rowRange(0, 3).col(3);
+                        msgs_interfaces::msg::MarkerPose marker_pose;
+                        marker_pose.id = markerIds[i];
+                        marker_pose.x = tvec_rel.at<double>(0);
+                        marker_pose.y = tvec_rel.at<double>(1);
+                        marker_pose.theta = rvec_rel.at<double>(2);
+                        marker_pose_array_msg.poses.push_back(marker_pose);
+
+                        msgs_interfaces::msg::MarkerPoint marker_point;
+                        marker_point.id = markerIds[i];
+                        cv::Point2f detected_point = ( markerCorners[i][0] + markerCorners[i][1] 
+                                        + markerCorners[i][2] + markerCorners[i][3] ) / 4;   
+                        marker_point.centre_point.x = detected_point.x;
+                        marker_point.centre_point.y = detected_point.y;                       
+                        
+                        scene_msg.marker_points.push_back(marker_point);
+                    }
+                }
+
                 for (int i = 0; i < markerIds.size(); ++i) {
-                    if (markerIds[i] != 0) {
+                    
+                    if (markerIds[i] != 0 && markerIds[i] != 40) {
 
                         rvec = cv::Mat(rvecs[i]);
                         tvec = cv::Mat(tvecs[i]);
@@ -221,7 +259,7 @@ class ArucoPoseEstimation : public rclcpp::Node {
                         Ti.at<double>(3, 2) = 0;
 
                         // Compute relative transformation
-                        T_rel = T0.inv() * Ti;  
+                        T_rel = T4.inv() * Ti;  
 
                         cv::Rodrigues(T_rel.rowRange(0, 3).colRange(0, 3), rvec_rel);
                         tvec_rel = T_rel.rowRange(0, 3).col(3);
@@ -243,8 +281,6 @@ class ArucoPoseEstimation : public rclcpp::Node {
 
                         // RCLCPP_INFO(this->get_logger(), "marker: %d %f %f %f", markerIds[i], tvec_rel.at<double>(0), tvec_rel.at<double>(1), rvec_rel.at<double>(2));
                     }
-
-                    marker_pose_publisher_->publish(marker_pose_array_msg);
                 
                     // cv::aruco::drawDetectedMarkers(frame, markerCorners, markerIds);
                     // cv::aruco::drawAxis(frame, cameraMatrix, distCoeffs, rvecs[i], tvecs[i], 0.1);
@@ -266,6 +302,8 @@ class ArucoPoseEstimation : public rclcpp::Node {
                     cv::circle(frame, centrePoint, 2, cv::Scalar(255, 0, 0), 6);
                     cv::putText(frame, aruco_turtle[markerIds[i]], cornerPointy, cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(0, 0, 255), 2);
                 }
+
+                marker_pose_publisher_->publish(marker_pose_array_msg);
 
                 // cv::cvtColor(frame, frame, cv::COLOR_RGB2BGR);
                 scene_msg.image = *cv_bridge::CvImage(std_msgs::msg::Header(), "bgr8", frame).toImageMsg();

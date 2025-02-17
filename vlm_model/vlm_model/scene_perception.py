@@ -47,9 +47,8 @@ class ScenePerception(Node):
         self.first = True
         self.grounding_dino = pipeline(model="IDEA-Research/grounding-dino-tiny", 
                                 task="zero-shot-object-detection", 
-                                device="cuda") 
-        
-
+                                device="cuda")
+ 
         self.sam2 = build_sam2_camera_predictor("configs/sam2.1/sam2.1_hiera_s.yaml",
                                                 "/home/nisarganc/segment_anything/checkpoints/sam2.1_hiera_small.pt"
                                                 )
@@ -89,12 +88,12 @@ class ScenePerception(Node):
                     bbox = [output['box']['xmin'], output['box']['ymin'], output['box']['xmax'], output['box']['ymax']]
                     found = False
                     for marker_point in msg.marker_points:
-                            for corner in marker_point.corner_points:
-                                if (corner.x > bbox[0] and corner.x < bbox[2]) and corner.y > bbox[1] and corner.y < bbox[3]:
-                                    if marker_point.id == 40:
-                                        object_bbox = bbox
-                                    found = True
-                                    break
+                        if (marker_point.centre_point.x > bbox[0] and marker_point.centre_point.x < bbox[2] and 
+                            marker_point.centre_point.y > bbox[1] and marker_point.centre_point.y < bbox[3]):
+                            if marker_point.id == 40:
+                                object_bbox = bbox
+                            found = True
+
                     all_bboxes.append(bbox)            
                     if not found:
                         obstacles_bboxes.append(bbox)  
@@ -124,7 +123,19 @@ class ScenePerception(Node):
                 mask_uint8 = (object_mask * 255).astype(np.uint8)
                 contours, _ = cv2.findContours(mask_uint8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-                print(contours)
+                contact_points = np.array(contours)
+                contact_points = np.squeeze(contact_points) # (num_points, 2)
+
+                # # convert contact points to 3D T0 frame
+                # contact_points_3D = []
+                # for point in contact_points:
+                #     x = point[0]
+                #     y = point[1]
+                #     z = 1
+                #     point_3D = np.dot(np.linalg.inv(self.camera_matrix), [x, y, z])
+                #     contact_points_3D.append(point_3D)
+                # contact_points_3D = np.array(contact_points_3D)
+
                 
                 for bbox in obstacles_bboxes:
                     cv_image = cv2.rectangle(cv_image, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (255, 0, 0), 2) 
