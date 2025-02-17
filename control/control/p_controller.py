@@ -9,7 +9,7 @@ from geometry_msgs.msg import Twist
 from msgs_interfaces.msg import MarkerPoseArray
 
 MAX_LINEAR_VELOCITY = 0.01  # m/s
-MAX_ANGULAR_VELOCITY = 0.01 # rad/s
+MAX_ANGULAR_VELOCITY = 0.01  # rad/s
 RADIUS = 0.42  # m
 
 IDs = {"/turtle2": 10, "/turtle4": 20, "/turtle6": 30, "object": 40}
@@ -17,6 +17,7 @@ IDs = {"/turtle2": 10, "/turtle4": 20, "/turtle6": 30, "object": 40}
 cmd_back = Twist()
 cmd_back.linear.x = -0.01
 cmd_back.angular.z = 0.0
+
 
 class PosePController(Node):
     """
@@ -92,14 +93,15 @@ class PosePController(Node):
         # Calculate errors
         error_x = desired_pose_x - robot_pose_x
         error_y = desired_pose_y - robot_pose_y
+        error_final_angle = self.shortest_angular_distance(robot_pose_theta, desired_pose_theta)
 
         error_linear = np.sqrt(error_x**2 + error_y**2)
-        error_angular = self.normalize_angle(np.arctan2(error_y, error_x) - robot_pose_theta)
+        error_angular = self.normalize_angle(
+            np.arctan2(error_y, error_x) - robot_pose_theta
+        )
 
         v = self.kp_linear * error_linear
-        omega = (
-            self.kp_angular * error_angular
-        )
+        omega = self.kp_angular * error_angular
 
         # Limit the velocities
         v, omega = self.check_limits(v, omega)
@@ -256,7 +258,6 @@ class PosePController(Node):
         """
         return (angle + np.pi) % (2 * np.pi) - np.pi
 
-    
     def shortest_angular_distance(self, x, y):
         """
         Calculate the shortest angular distance between two angles
@@ -268,8 +269,8 @@ class PosePController(Node):
         Returns:
             float: Shortest angular
         """
-        return min(y-x, y-x+2*np.pi, y-x-2*np.pi, key=abs)
-    
+        return min(y - x, y - x + 2 * np.pi, y - x - 2 * np.pi, key=abs)
+
     def check_limits(self, v: float, omega: float) -> tuple:
         """
         Check the limits of the velocities
@@ -284,7 +285,7 @@ class PosePController(Node):
         if v > MAX_LINEAR_VELOCITY:
             ratio = abs(MAX_LINEAR_VELOCITY / v)
             v = MAX_LINEAR_VELOCITY
-            omega = omega * ratio 
+            omega = omega * ratio
 
         elif v < -MAX_LINEAR_VELOCITY:
             ratio = abs(MAX_LINEAR_VELOCITY / v)
