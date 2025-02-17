@@ -221,8 +221,12 @@ class ArucoPoseEstimation : public rclcpp::Node {
                         T4.at<double>(3, 1) = 0;
                         T4.at<double>(3, 2) = 0;
 
-                        cv::Rodrigues(T4.rowRange(0, 3).colRange(0, 3), rvec_rel);
-                        tvec_rel = T4.rowRange(0, 3).col(3);
+                        // Compute relative transformation
+                        T_rel = T0.inv() * Ti;
+
+                        cv::Rodrigues(T_rel.rowRange(0, 3).colRange(0, 3), rvec_rel);
+                        tvec_rel = T_rel.rowRange(0, 3).col(3);
+                        
                         msgs_interfaces::msg::MarkerPose marker_pose;
                         marker_pose.id = markerIds[i];
                         marker_pose.x = tvec_rel.at<double>(0);
@@ -242,7 +246,7 @@ class ArucoPoseEstimation : public rclcpp::Node {
                 }
 
                 for (int i = 0; i < markerIds.size(); ++i) {
-                    
+
                     if (markerIds[i] != 0 && markerIds[i] != 40) {
 
                         rvec = cv::Mat(rvecs[i]);
