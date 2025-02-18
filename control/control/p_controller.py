@@ -79,30 +79,31 @@ class PosePController(Node):
         """
         # Get the poses
         object_frame = self.get_pose(msg, IDs["object"])
-        robot_pose_WF = self.get_pose(msg, IDs[self.get_namespace()])
+        robot_pose = self.get_pose(msg, IDs[self.get_namespace()])
 
-        if None in robot_pose_WF or None in object_frame:
+        if None in robot_pose or None in object_frame:
             return
 
-        robot_pose_OF = self.transform_to_frame(robot_pose_WF, object_frame)
+        if self.segment == []:
+            self.segment = self.generate_desired_segment(robot_pose)
+            self.get_logger().info(f"Desired Segment Coordinates: {self.segment}")
+            if self.segment == []:
+                return
+            self.desired_pose = self.get_desired_pose()
 
-        self.segment = self.generate_desired_segment(robot_pose_OF, num_of_points=2, num_of_segments=4)
-        self.get_logger().info(f"Desired Segment Coordinates: {self.segment}")
-        desired_pose_OF = self.get_desired_pose()
-
-        robot_pose_x_OF, robot_pose_y_OF, robot_pose_theta_OF = robot_pose_OF
-        desired_pose_x_OF, desired_pose_y_OF, desired_pose_theta_OF = desired_pose_OF
+        robot_pose_x, robot_pose_y, robot_pose_theta = robot_pose
+        desired_pose_x, desired_pose_y, desired_pose_theta = self.desired_pose
 
         # Calculate errors
-        error_x = desired_pose_x_OF - robot_pose_x_OF
-        error_y = desired_pose_y_OF - robot_pose_y_OF
+        error_x = desired_pose_x - robot_pose_x
+        error_y = desired_pose_y - robot_pose_y
         error_final_angle = self.shortest_angular_distance(
-            robot_pose_theta_OF, desired_pose_theta_OF
+            robot_pose_theta, desired_pose_theta
         )
 
         error_linear = np.sqrt(error_x**2 + error_y**2)
         error_angular = self.normalize_angle(
-            np.arctan2(error_y, error_x) - robot_pose_theta_OF
+            np.arctan2(error_y, error_x) - robot_pose_theta
         )
 
         v = self.kp_linear * error_linear
@@ -117,9 +118,9 @@ class PosePController(Node):
 
         # Print log
         self.get_logger().info(
-            f"Robot Pose: ({robot_pose_x_OF:.2f}, {robot_pose_y_OF:.2f}, {robot_pose_theta_OF:.2f}) "
+            f"Robot Pose: ({robot_pose_x:.2f}, {robot_pose_y:.2f}, {robot_pose_theta:.2f}) "
             f"Object Pose: ({object_frame[0]:.2f}, {object_frame[1]:.2f}, {object_frame[2]:.2f}) "
-            f"Desired Pose: ({desired_pose_x_OF:.2f}, {desired_pose_y_OF:.2f}, {desired_pose_theta_OF:.2f}) "
+            f"Desired Pose: ({desired_pose_x:.2f}, {desired_pose_y:.2f}, {desired_pose_theta:.2f}) "
             f"Error: ({error_x:.2f}, {error_y:.2f}, {error_final_angle:.2f}) "
             f"Error Angular: {error_angular:.2f} "
             f"v: {v:.2f} "
@@ -141,7 +142,7 @@ class PosePController(Node):
             cmd.linear.x = self.linear_velocity
             cmd.angular.z = self.angular_velocity
 
-        # self.cmd_publisher.publish(cmd)
+        self.cmd_publisher.publish(cmd)
         self.pose_callback_counter += 1
 
     def get_pose(self, msg: MarkerPoseArray, id: int) -> tuple:
@@ -170,7 +171,6 @@ class PosePController(Node):
         Returns:
             tuple: x, y, theta
         """
-
         x_desired, y_desired = self.segment[len(self.segment) // 2]
         theta_desired = self.normalize_angle(np.arctan2(y_desired, x_desired) + np.pi)
 
@@ -274,7 +274,7 @@ class PosePController(Node):
         return v, omega
 
     def generate_desired_segment(
-        self, robot_pose: tuple, radius: float = RADIUS, num_of_points: int = 2, num_of_segments: int = 4
+        self, robot_pose: tuple, radius: float = RADIUS, num_of_points: int = 3, num_of_segments: int = 4
     ) -> list:
         """
         Generate the desired coordinates for the robot as a segment
@@ -288,7 +288,7 @@ class PosePController(Node):
         Returns:
             list: List of coordinates in the object frame in the segment
         """
-        x, y, _ = robot_pose
+        robot_x, robot_y, _ = robot_pose
         corners = [
             (radius, radius),
             (radius, -radius),
@@ -303,30 +303,33 @@ class PosePController(Node):
             p1 = corners[edge]
             p2 = corners[(edge + 1) % 4]
 
-            for i in range(num_of_points + 1):
-                x = p1[0] + (p2[0] - p1[0]) * i / num_of_points
-                y = p1[1] + (p2[1] - p1[1]) * i / num_of_points
+            for i in range(num_of_points):
+                x = p1[0] + (p2[0] - p1[0]) * i / (num_of_points-1)
+                y = p1[1] + (p2[1] - p1[1]) * i / (num_of_points-1)
                 coordinates.append([x, y])
 
         self.get_logger().info(f"Coordinates: {coordinates}")
 
+        segment_id = -1
+
         # Check on which edge the robot is
-        if x > radius:
-            segment = 0
-        elif x < -radius:
-            segment = 2
-        elif y > radius:
-            segment = 3
-        elif y < -radius:
-            segment = 1
+        if robot_x > radius:
+            segment_id = 0
+        elif robot_x < -radius:
+            segment_id = 2
+        elif robot_y > radius:
+            segment_id = 3
+        elif robot_y < -radius:
+            segment_id = 1
 
-        num_per_segment = num_of_points // num_of_segments
+        num_per_segment = (num_of_points * 4) // num_of_segments
+        self.get_logger().info(f"Number of points per segment: {num_per_segment}")
 
-        for i in range(num_of_segments):
-            if i == segment:
-                self.get_logger().info(f"Segment: {segment}")
-                for j in range(num_per_segment):
-                    segment.append(coordinates[i * num_per_segment + j])
+        if segment_id == -1:
+            return segment
+        
+        for j in range(num_per_segment):
+            segment.append(coordinates[segment_id * num_per_segment + j])
 
         return segment
 

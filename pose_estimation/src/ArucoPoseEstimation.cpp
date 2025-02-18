@@ -50,7 +50,7 @@ class ArucoPoseEstimation : public rclcpp::Node {
             aruco_turtle[30] = "turtle6";
             aruco_turtle[40] = "object";
 
-            cap = std::make_shared<cv::VideoCapture>(6);
+            cap = std::make_shared<cv::VideoCapture>(4);
             // cap.set(cv::CAP_PROP_FRAME_HEIGHT, image_height);            
             // cap.set(cv::CAP_PROP_FRAME_WIDTH, image_width);
             // cap.set(cv::CAP_PROP_FPS, 5);
