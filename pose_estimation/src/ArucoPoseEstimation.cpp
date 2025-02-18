@@ -221,8 +221,15 @@ class ArucoPoseEstimation : public rclcpp::Node {
                         T4.at<double>(3, 1) = 0;
                         T4.at<double>(3, 2) = 0;
 
+                        // float object_frame[4][4];
+                        // for (int i = 0; i < T4.rows; i++) {
+                        //     for (int j = 0; j < T4.cols; j++) {
+                        //         object_frame[i][j] = T4.at<double>(i, j);
+                        //     }
+                        // }
+
                         // Compute relative transformation
-                        T_rel = T0.inv() * Ti;
+                        T_rel = T0.inv() * T4;
 
                         cv::Rodrigues(T_rel.rowRange(0, 3).colRange(0, 3), rvec_rel);
                         tvec_rel = T_rel.rowRange(0, 3).col(3);
@@ -241,6 +248,7 @@ class ArucoPoseEstimation : public rclcpp::Node {
                         marker_point.centre_point.x = detected_point.x;
                         marker_point.centre_point.y = detected_point.y;                       
                         
+                        // scene_msg.object_frame = object_frame;
                         scene_msg.marker_points.push_back(marker_point);
                     }
                 }
@@ -316,7 +324,7 @@ class ArucoPoseEstimation : public rclcpp::Node {
                 scene_publisher_->publish(scene_msg);
                 
             }   
-    }
+        }
 };
 
 int main(int argc, char *argv[]) {
