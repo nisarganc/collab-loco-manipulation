@@ -65,8 +65,6 @@ class ScenePerception(Node):
         self.future = self.cli.call_async(self.req)
         rclpy.spin_until_future_complete(self, self.future)
         return self.future.result()
-       
-
     def detect_segment_track(self, msg):
 
         cv_image = self.cv_bridge.imgmsg_to_cv2(msg.image)
@@ -126,15 +124,20 @@ class ScenePerception(Node):
                 contact_points = np.array(contours)
                 contact_points = np.squeeze(contact_points) # (num_points, 2)
 
-                # # convert contact points to 3D T0 frame
-                # contact_points_3D = []
-                # for point in contact_points:
-                #     x = point[0]
-                #     y = point[1]
-                #     z = 1
-                #     point_3D = np.dot(np.linalg.inv(self.camera_matrix), [x, y, z])
-                #     contact_points_3D.append(point_3D)
-                # contact_points_3D = np.array(contact_points_3D)
+                # convert contact points to camera cordinate system using  camera parameters
+                contact_points = np.concatenate((contact_points, np.ones((contact_points.shape[0], 1))), axis=1)
+                contact_points = np.dot(np.linalg.inv(self.camera_matrix), contact_points.T).T
+                print(contact_points)
+
+                # # T4 is a 4x4 transformation matrix from the object cordinate system to camera cordinate system
+                # # convert contact points to object cordinate system
+                # T4 = msg.object_frame
+                # contact_points = np.dot(np.linalg.inv(T4), contact_points.T).T
+                # print(contact_points)
+                # exit()
+
+
+
                 
                 for bbox in obstacles_bboxes:
                     cv_image = cv2.rectangle(cv_image, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (255, 0, 0), 2) 
