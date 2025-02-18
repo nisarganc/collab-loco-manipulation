@@ -135,7 +135,6 @@ class ScenePerception(Node):
                 #     point_3D = np.dot(np.linalg.inv(self.camera_matrix), [x, y, z])
                 #     contact_points_3D.append(point_3D)
                 # contact_points_3D = np.array(contact_points_3D)
-
                 
                 for bbox in obstacles_bboxes:
                     cv_image = cv2.rectangle(cv_image, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (255, 0, 0), 2) 
