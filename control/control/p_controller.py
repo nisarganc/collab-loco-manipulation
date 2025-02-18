@@ -14,6 +14,12 @@ RADIUS = 0.45  # m
 
 IDs = {"/turtle2": 10, "/turtle4": 20, "/turtle6": 30, "object": 40}
 
+desired = {
+    "/turtle2": (3.072860444107310407e-01, -9.158966649116762060e-02),
+    "/turtle4": (-3.262809077883643827e-02, -3.881981339339535264e-01),
+    "/turtle6": (-2.775603127609371779e-01, 3.278249424045180938e-01),
+}
+
 
 class PosePController(Node):
     """
@@ -44,9 +50,9 @@ class PosePController(Node):
         self._lock = threading.Lock()
 
         # P parameters
-        self.kp_linear = 0.2
-        self.kp_angular = 5.0
-        self.kp_final_angle = 1.0
+        self.kp_linear = 1.0
+        self.kp_angular = 6.0
+        self.kp_final_angle = 0.0
 
         # Time step
         self.dt = 0.1  # 100ms
@@ -55,7 +61,9 @@ class PosePController(Node):
         self.linear_velocity = 0.0
         self.angular_velocity = 0.0
 
+        # Segment
         self.segment = []
+        self.desired_pose = self.get_desired_pose()
 
         # callback group
         callback_group = ReentrantCallbackGroup()
@@ -93,33 +101,20 @@ class PosePController(Node):
         if None in robot_pose or None in object_pose:
             return
 
-        if self.segment == []:
-            self.segment = self.generate_desired_segment(robot_pose)
-            self.get_logger().info(f"Desired Segment Coordinates: {self.segment}")
-            if self.segment == []:
-                return
-            self.desired_pose = self.get_desired_pose()
-
-        robot_pose_x, robot_pose_y, robot_pose_theta = robot_pose
-        desired_pose_x, desired_pose_y, desired_pose_theta = self.desired_pose
+        # if self.segment == []:
+        #     self.segment = self.generate_desired_segment(robot_pose)
+        #     self.get_logger().info(f"Desired Segment Coordinates: {self.segment}")
+        #     if self.segment == []:
+        #         return
+        # self.desired_pose = self.get_desired_pose()
 
         v, omega = self.p_controller(robot_pose)
-
-        # Limit the velocities
         v, omega = self.check_limits(v, omega)
 
         with self._lock:
             self.linear_velocity = v
             self.angular_velocity = omega
 
-        # Print log
-        self.get_logger().info(
-            f"Robot Pose: ({robot_pose_x:.2f}, {robot_pose_y:.2f}, {robot_pose_theta:.2f}) "
-            f"Object Pose: ({object_pose[0]:.2f}, {object_pose[1]:.2f}, {object_pose[2]:.2f}) "
-            f"Desired Pose: ({desired_pose_x:.2f}, {desired_pose_y:.2f}, {desired_pose_theta:.2f}) "
-            f"v: {v:.2f} "
-            f"omega: {omega:.2f}"
-        )
         self.pose_callback_counter = 0
 
     def publish_velocity_callback(self):
@@ -163,7 +158,8 @@ class PosePController(Node):
         Returns:
             tuple: x, y, theta
         """
-        x_desired, y_desired = self.segment[len(self.segment) // 2]
+        # x_desired, y_desired = self.segment[len(self.segment) // 2]  # Middle point of the segment
+        x_desired, y_desired = desired[self.get_namespace()]
         theta_desired = self.normalize_angle(np.arctan2(y_desired, x_desired) + np.pi)
 
         return x_desired, y_desired, theta_desired
@@ -196,9 +192,18 @@ class PosePController(Node):
         # Calculate the velocities
         v = self.kp_linear * error_linear
         omega = (
-            self.kp_angular * error_angular 
-            + self.kp_final_angle * error_final_angle
+            self.kp_angular * error_angular + self.kp_final_angle * error_final_angle
         )
+
+        # Print log
+        self.get_logger().info(
+            f"Robot Pose: ({robot_pose_x:.2f}, {robot_pose_y:.2f}, {robot_pose_theta:.2f}) "
+            f"Desired Pose: ({desired_pose_x:.2f}, {desired_pose_y:.2f}, {desired_pose_theta:.2f}) "
+            f"Error: ({error_x:.2f}, {error_y:.2f}, {error_final_angle:.2f}) "
+            f"v: {v:.2f} "
+            f"omega: {omega:.2f}"
+        )
+        self.save_plot_data(robot_pose)
 
         return v, omega
 
@@ -320,6 +325,17 @@ class PosePController(Node):
             segment.append(coordinates[segment_id * num_per_segment + j])
 
         return segment
+
+    def save_plot_data(self, robot_pose: tuple):
+        """
+        Save the plot data to a file
+        """
+        namespace = self.get_namespace().split("/")[1]
+        x, y, theta = robot_pose
+
+        # Add robot pose to the csv file
+        with open(f"robot_poses_{namespace}.csv", "a") as f:
+            np.savetxt(f, [[x, y, theta]], delimiter=",", fmt="%.2f")
 
 
 def main(args=None):
