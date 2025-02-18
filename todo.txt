@@ -1,40 +1,40 @@
 pose_estimation:
-- change bgr sensor msg to rgb?
+- does aruco_detection uses bgr or rgb?
+- does sensor_msg/Image always in bgr encoding?
 - change the webcam name instead of dynamic number
-- create a namespace for the mapping of ids with turtles
-- pass cam intrinsics as parameter
 
 scene_perception:
-- implement ov object detection to obtain obstacles bounding boxes 
-    - remove boxes around robots, markers, and object
-    - track the obstacles-objects and detect changes
-    - transform to world frame 
-- segment manipulating object
-    - obtain countour
-    - transform to object frame   
+- first frame
+    - transform obstacles to world frame 
+    - colour the countours
+- !first frame
+    - track the obstacles and detect changes
 
 optimizer/gtsam:
 - obtain goal pose from user
 - move scenesubscriber to vlmclient: 
     - optimise-proj_goal and proj_traj
     - draw yaw angle directions and range (-pi to pi)
-- recording code for experiments 
-- change gactor graph to consider obstacles bounding boxes from BBOX
+
+- change factor graph to consider obstacles bounding boxes from scene_perception
 - contruct fg for switch mode trajectories
 - check time for translation/rotation
 - check ensure angle range
 - Complete optimizer.h code
 
 action-planning/vlm_model:
-- ToDo: timig/descritization of path. When to query VLM?
+- ToDo: planning and replanning with VLM?
 - VLM call: 
-    - robot always faces normal to object. Compare manipulation direction with positioning of robots around objects and the resultant force. Action switch required? 
-    - define high level switch_contact_points actions: right-centre, right-left, right-right, left-centre, left-left, left-right
-    - How to asses scene obstacles/weight/friction into account?
+    - robot always faces normal to object. 
+    - Compare manipulation direction with positioning of robots around objects and the resultant force. 
+    - Action switch required? 
+    - Pick colours on the countour of object
 
 experiments:
+- recording code for experiments 
 - objects (square box-different sizes, t-shaped, rectangle)
 - weight: fill package with to weigh differently
+- How to asses scene obstacles/weight/shape/friction
 
 repository organisation:
 - document sam2 cloning and fix abs path
@@ -44,5 +44,3 @@ repository organisation:
 - update citations on code files
 - remove unnecessary headers and info
 - add file purpose headers
-
-

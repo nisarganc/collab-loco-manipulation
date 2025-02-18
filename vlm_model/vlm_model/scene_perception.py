@@ -38,7 +38,9 @@ class ScenePerception(Node):
         self.camera_matrix = [[response.fx, 0, response.cx], 
                               [0, response.fy, response.cy], 
                               [0, 0, 1]]
-        
+        self.t0 = np.array(response.t0).reshape(4, 4)
+        self.t0 = np.linalg.inv(self.t0) # camera to world coordinate system
+
         # initialize ai models
         self.first = True
         self.grounding_dino = pipeline(model="IDEA-Research/grounding-dino-tiny", 
@@ -68,14 +70,15 @@ class ScenePerception(Node):
         gd_image = PILImage.fromarray(cv_image)
 
         with torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
+            
             if self.first:
-                self.first = False
+                # self.first = False
+                
                 dino_output = self.grounding_dino(gd_image,  candidate_labels=["objects."], threshold=0.3)
                 # [{'score': 0.74167400598526, 'label': 'objects.', 'box': {'xmin': 644, 'ymin': 570, 'xmax': 1122, 'ymax': 1033}}, 
                 # {'score': 0.5053098797798157, 'label': 'objects.', 'box': {'xmin': 1772, 'ymin': 909, 'xmax': 1884, 'ymax': 1047}}, 
                 # {'score': 0.3090237081050873, 'label': 'objects.', 'box': {'xmin': 808, 'ymin': 734, 'xmax': 959, 'ymax': 891}}]
 
-                all_bboxes = []
                 obstacles_bboxes = []
                 object_bbox = []
                 for output in dino_output:
@@ -88,21 +91,19 @@ class ScenePerception(Node):
                                 object_bbox = bbox
                             found = True
 
-                    all_bboxes.append(bbox)            
                     if not found:
                         obstacles_bboxes.append(bbox)  
 
-                all_bboxes = np.array(all_bboxes)
                 obstacles_bboxes = np.array(obstacles_bboxes)  
                 object_bbox = np.array(object_bbox)      
                             
                 self.sam2.load_first_frame(cv_image)
-                for i, bbox in enumerate(obstacles_bboxes):
-                    _, out_obj_ids, video_res_masks = self.sam2.add_new_prompt(
-                                                                        frame_idx=0, 
-                                                                        obj_id=i,
-                                                                        bbox=bbox)
-                _, obj_id, object_mask = self.sam2.add_new_prompt(
+                # for i, bbox in enumerate(obstacles_bboxes):
+                    # _, out_obj_ids, video_res_masks = self.sam2.add_new_prompt(
+                    #                                                     frame_idx=0, 
+                    #                                                     obj_id=i,
+                    #                                                     bbox=bbox)
+                _, _, object_mask = self.sam2.add_new_prompt(
                                                             frame_idx=0, 
                                                             obj_id=40,
                                                             bbox=object_bbox)  
@@ -121,37 +122,35 @@ class ScenePerception(Node):
                 contact_points = np.array(contours)
                 contact_points = np.squeeze(contact_points) # (num_points, 2)
 
+                t4 = np.array(msg.object_frame).reshape(4, 4)
+                t4 = np.linalg.inv(t4) # camera to object coordinate system
 
-                t4 = msg.object_frame
-                t4 = np.array(t4).reshape(4, 4)
-                t4 = np.linalg.inv(t4) # camera to object frame
-
+                # Micheal's Math!!
                 zm = np.array([t4[0,2], t4[1,2], t4[2,2]]) # 1x3
                 o = np.array([t4[0,3], t4[1,3], t4[2,3]]) # 1x3
                 d = - np.dot(zm, o.T) # 1x1
 
-                # convert contact points to camera cordinate system using camera parameters
+                # convert contact points to camera coordinate system
                 contact_points = np.concatenate((contact_points, np.ones((contact_points.shape[0], 1))), axis=1)
                 contact_points = np.dot(np.linalg.inv(self.camera_matrix), contact_points.T)
 
+                # calculate scaling factor
                 s = -d/np.dot(zm, contact_points) # num_points,
-                s = np.expand_dims(s, axis=1) # num_points, 1
-                contact_points = contact_points.T # num_points, 3
 
-                contact_points = s * contact_points # 3, num_points
+                s = np.expand_dims(s, axis=1) # (num_points, 1)
+                contact_points = contact_points.T # (num_points, 3)
+                contact_points = s * contact_points # (num_points, 3)
 
+                # convert contact points to object coordinate system
                 contact_points = np.concatenate((contact_points, np.ones((contact_points.shape[0], 1))), axis=1)
                 contact_points = np.dot(t4, contact_points.T).T
-                print(contact_points)
-                print(contact_points.shape)
-                contact_points = contact_points[:, :2]
-                # export contact points to a txt file
-                np.savetxt("contact_points_bigbox_NEW.txt", contact_points, delimiter=",")
-                exit()
+                contact_points = contact_points[:, :2] # (num_points, 2)
 
                 for bbox in obstacles_bboxes:
                     cv_image = cv2.rectangle(cv_image, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (255, 0, 0), 2) 
                 cv2.drawContours(cv_image, contours, -1, (255, 255, 0), 2)
+
+                # Convert obstacles_bboxes to T0
 
             # else:
             #     out_obj_ids, video_res_masks = self.sam2.track(cv_image)
@@ -169,7 +168,6 @@ class ScenePerception(Node):
 
         annotated_frame_msg = self.cv_bridge.cv2_to_imgmsg(cv2.cvtColor(cv_image, cv2.COLOR_RGB2BGR))
         self.annotated_frame_pub.publish(annotated_frame_msg)
-
 
 def main(args=None):
     rclpy.init(args=args)
