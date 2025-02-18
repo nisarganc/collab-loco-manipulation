@@ -38,8 +38,8 @@ experiments:
 
 repository organisation:
 - document sam2 cloning and fix abs path
-- create a python env and run python files from env
-- create python env requirements file and update requirements installation in README.md
+- [x] create a python env and run python files from env
+- [x] create python env requirements file and update requirements installation in README.md
 - update c++ packages requirements in README.md
 - update citations on code files
 - remove unnecessary headers and info

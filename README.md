@@ -26,6 +26,7 @@ cd ..
   cd coloco-manipulation
   python -m venv objectpushing
   source ~/coloco-manipulation/objectpushing/bin/activate
+  pip install -r requirements.txt
   git clone https://github.com/nisarganc/coloco-manipulation.git src
   rosdep install --from-paths src --ignore-src -r -y
   colcon build --symlink-install

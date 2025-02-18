@@ -14,7 +14,7 @@ import torch
 from PIL import Image as PILImage
 from transformers import pipeline
 from pathlib import Path
-from sam2.build_sam import build_sam2_camera_predictor
+#from sam2.build_sam import build_sam2_camera_predictor
 
 # helper libraries
 import cv2
