@@ -154,12 +154,6 @@ class ArucoPoseEstimation : public rclcpp::Node {
 
                         RCLCPP_INFO(this->get_logger(), "World Frame Found");
 
-                        for (int i = 0; i < T0.rows; i++) {
-                            for (int j = 0; j < T0.cols; j++) {
-                                T0_values.push_back(T0.at<double>(i, j));
-                            }
-                        }
-
                         return true; 
                     }
                 }
@@ -180,8 +174,10 @@ class ArucoPoseEstimation : public rclcpp::Node {
             response->cx = cx;
             response->cy = cy;
 
-            for (int i = 0; i < T0_values.size(); i++) {
-                response->t0[i] = T0_values[i];
+            for (int i = 0; i < 4; i++) {
+                for (int j = 0; j < 4; j++) {
+                    response->t0[i * 4 + j] = T0.at<double>(i, j);
+                }
             }
 
         }
@@ -207,28 +203,27 @@ class ArucoPoseEstimation : public rclcpp::Node {
                 for (int i = 0; i < markerIds.size(); ++i)
                 {
                     if (markerIds[i] == 40) {
-                        rvec = cv::Mat(rvecs[i]);
-                        tvec = cv::Mat(tvecs[i]);
+                        rvec = cv::Mat(rvecs[i]); // row, pitch, yaw
+                        tvec = cv::Mat(tvecs[i]); // x, y, z
 
                         // Compute rotation matrix
                         cv::Rodrigues(rvec, Ri);
                         T4 = cv::Mat::eye(4, 4, CV_64F);
 
-                        // Fill in rotation and translation for m0Xc and m1Xc
+                        // Fill in rotation and translation for m4Xc
                         Ri.copyTo(T4.rowRange(0, 3).colRange(0, 3));
                         tvec.copyTo(T4.rowRange(0, 3).col(3));
                         T4.at<double>(3, 0) = 0;
                         T4.at<double>(3, 1) = 0;
                         T4.at<double>(3, 2) = 0;
 
-                        // float object_frame[4][4];
-                        // for (int i = 0; i < T4.rows; i++) {
-                        //     for (int j = 0; j < T4.cols; j++) {
-                        //         object_frame[i][j] = T4.at<double>(i, j);
-                        //     }
-                        // }
+                        for (int i =0; i<4; i++) {
+                            for (int j=0; j<4; j++) {
+                                scene_msg.object_frame[i * 4 + j] = T4.at<double>(i, j);
+                            }
+                        }
 
-                        // Compute relative transformation
+                        // Compute relative transformation m4Xm0 = cXm0 * m4Xc
                         T_rel = T0.inv() * T4;
 
                         cv::Rodrigues(T_rel.rowRange(0, 3).colRange(0, 3), rvec_rel);
@@ -248,7 +243,6 @@ class ArucoPoseEstimation : public rclcpp::Node {
                         marker_point.centre_point.x = detected_point.x;
                         marker_point.centre_point.y = detected_point.y;                       
                         
-                        // scene_msg.object_frame = object_frame;
                         scene_msg.marker_points.push_back(marker_point);
                     }
                 }
