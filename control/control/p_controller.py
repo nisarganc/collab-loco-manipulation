@@ -8,9 +8,9 @@ import threading
 from geometry_msgs.msg import Twist
 from msgs_interfaces.msg import MarkerPoseArray
 
-MAX_LINEAR_VELOCITY = 0.1  # m/s
-MAX_ANGULAR_VELOCITY = 0.1  # rad/s
-RADIUS = 0.4  # m
+MAX_LINEAR_VELOCITY = 0.05  # m/s
+MAX_ANGULAR_VELOCITY = 0.05  # rad/s
+RADIUS = 0.45  # m
 
 IDs = {"/turtle2": 10, "/turtle4": 20, "/turtle6": 30, "object": 40}
 
@@ -37,7 +37,7 @@ class PosePController(Node):
         self._lock = threading.Lock()
 
         # P parameters
-        self.kp_linear = 1.0
+        self.kp_linear = 0.2
         self.kp_angular = 5.0
 
         # Time step
@@ -46,11 +46,14 @@ class PosePController(Node):
         # Velocities
         self.linear_velocity = 0.0
         self.angular_velocity = 0.0
-        
+
         self.segment = []
 
         # callback group
         callback_group = ReentrantCallbackGroup()
+
+        # Create Client for segment arrays
+        # self.segment_client = self.create_client(Segment, "")
 
         # Create Subscriber for Aruco
         self.pose_subscriber = self.create_subscription(
@@ -274,7 +277,11 @@ class PosePController(Node):
         return v, omega
 
     def generate_desired_segment(
-        self, robot_pose: tuple, radius: float = RADIUS, num_of_points: int = 3, num_of_segments: int = 4
+        self,
+        robot_pose: tuple,
+        radius: float = RADIUS,
+        num_of_points: int = 3,
+        num_of_segments: int = 4,
     ) -> list:
         """
         Generate the desired coordinates for the robot as a segment
@@ -304,11 +311,9 @@ class PosePController(Node):
             p2 = corners[(edge + 1) % 4]
 
             for i in range(num_of_points):
-                x = p1[0] + (p2[0] - p1[0]) * i / (num_of_points-1)
-                y = p1[1] + (p2[1] - p1[1]) * i / (num_of_points-1)
+                x = p1[0] + (p2[0] - p1[0]) * i / (num_of_points - 1)
+                y = p1[1] + (p2[1] - p1[1]) * i / (num_of_points - 1)
                 coordinates.append([x, y])
-
-        self.get_logger().info(f"Coordinates: {coordinates}")
 
         segment_id = -1
 
@@ -323,15 +328,15 @@ class PosePController(Node):
             segment_id = 1
 
         num_per_segment = (num_of_points * 4) // num_of_segments
-        self.get_logger().info(f"Number of points per segment: {num_per_segment}")
 
         if segment_id == -1:
             return segment
-        
+
         for j in range(num_per_segment):
             segment.append(coordinates[segment_id * num_per_segment + j])
 
         return segment
+
 
 def main(args=None):
     rclpy.init(args=args)
@@ -340,6 +345,18 @@ def main(args=None):
 
     executor = MultiThreadedExecutor()
     executor.add_node(controller)
+
+    # while not controller.segment_client.wait_for_service(timeout_sec=1.0):
+    #     controller.get_logger().info('Service not available, waiting again...')
+
+    # request = Segment.Request()
+    # future = controller.segment_client.call_async(request)
+    # rclpy.spin_until_future_complete(controller, future)
+
+    # if future.result() is not None:
+    #     controller.get_logger().info('Service call succeeded')
+    # else:
+    #     controller.get_logger().error('Service call failed')
 
     try:
         executor.spin()
