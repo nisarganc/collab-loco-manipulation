@@ -22,8 +22,15 @@ class PosePController(Node):
     Attributes:
         kp_angular (float): Proportional gain for angular velocity
         kp_linear (float): Proportional gain for linear velocity
+        kp_final_angle (float): Proportional gain for the final angle
+        dt (float): Time step
+        linear_velocity (float): Linear velocity
+        angular_velocity (float): Angular velocity
+        segment (list): Segment for the desired coordinates
         subscription (Subscriber): Subscriber for the Aruco marker
         publisher (Publisher): Publisher for the cmd_vel
+        timer (Timer): Timer for the controller
+        pose_callback_counter (int): Counter for the pose callback
     """
 
     def __init__(self):
@@ -39,6 +46,7 @@ class PosePController(Node):
         # P parameters
         self.kp_linear = 0.2
         self.kp_angular = 5.0
+        self.kp_final_angle = 1.0
 
         # Time step
         self.dt = 0.1  # 100ms
@@ -59,32 +67,30 @@ class PosePController(Node):
         self.pose_subscriber = self.create_subscription(
             MarkerPoseArray,
             "/aruco_poses",
-            self.pose_callback,
+            self.handle_pose_update_callback,
             10,
             callback_group=callback_group,
         )
 
-        # Create Publisher for cmd_vel for the robot
+        # Create Publisher for cmd_vel and Timer
         self.cmd_publisher = self.create_publisher(Twist, "cmd_vel", 10)
-
-        # Create timer
         self.timer = self.create_timer(
-            self.dt, self.controller_callback, callback_group=callback_group
+            self.dt, self.publish_velocity_callback, callback_group=callback_group
         )
         self.pose_callback_counter = 0
 
-    def pose_callback(self, msg: MarkerPoseArray):
+    def handle_pose_update_callback(self, msg: MarkerPoseArray):
         """
-        Callback function for the subscriber
+        Callback function for the subscriber to handle the pose update
 
         Args:
             msg (Pose): Pose message from the Aruco marker
         """
         # Get the poses
-        object_frame = self.get_pose(msg, IDs["object"])
+        object_pose = self.get_pose(msg, IDs["object"])
         robot_pose = self.get_pose(msg, IDs[self.get_namespace()])
 
-        if None in robot_pose or None in object_frame:
+        if None in robot_pose or None in object_pose:
             return
 
         if self.segment == []:
@@ -97,20 +103,7 @@ class PosePController(Node):
         robot_pose_x, robot_pose_y, robot_pose_theta = robot_pose
         desired_pose_x, desired_pose_y, desired_pose_theta = self.desired_pose
 
-        # Calculate errors
-        error_x = desired_pose_x - robot_pose_x
-        error_y = desired_pose_y - robot_pose_y
-        error_final_angle = self.shortest_angular_distance(
-            robot_pose_theta, desired_pose_theta
-        )
-
-        error_linear = np.sqrt(error_x**2 + error_y**2)
-        error_angular = self.normalize_angle(
-            np.arctan2(error_y, error_x) - robot_pose_theta
-        )
-
-        v = self.kp_linear * error_linear
-        omega = self.kp_angular * error_angular
+        v, omega = self.p_controller(robot_pose)
 
         # Limit the velocities
         v, omega = self.check_limits(v, omega)
@@ -122,21 +115,17 @@ class PosePController(Node):
         # Print log
         self.get_logger().info(
             f"Robot Pose: ({robot_pose_x:.2f}, {robot_pose_y:.2f}, {robot_pose_theta:.2f}) "
-            f"Object Pose: ({object_frame[0]:.2f}, {object_frame[1]:.2f}, {object_frame[2]:.2f}) "
+            f"Object Pose: ({object_pose[0]:.2f}, {object_pose[1]:.2f}, {object_pose[2]:.2f}) "
             f"Desired Pose: ({desired_pose_x:.2f}, {desired_pose_y:.2f}, {desired_pose_theta:.2f}) "
-            f"Error: ({error_x:.2f}, {error_y:.2f}, {error_final_angle:.2f}) "
-            f"Error Angular: {error_angular:.2f} "
             f"v: {v:.2f} "
             f"omega: {omega:.2f}"
         )
-
         self.pose_callback_counter = 0
 
-    def controller_callback(self):
+    def publish_velocity_callback(self):
         """
-        Callback function for the controller
+        Callback function for the timer to publish the velocity
         """
-        # Publish the velocity
         if self.pose_callback_counter > 10:
             return
 
@@ -179,44 +168,39 @@ class PosePController(Node):
 
         return x_desired, y_desired, theta_desired
 
-    def transform_to_frame(
-        self, pose: tuple, transform_frame: tuple, reference_frame: tuple = (0, 0, 0)
-    ) -> tuple:
+    def p_controller(self, robot_pose: tuple) -> tuple:
         """
-        Transform the pose in the reference frame to the transform frame
+        P Controller for the robot
 
         Args:
-            pose (tuple): x, y, theta
-            transform_frame (tuple): x, y, theta of the frame to transform to
-            reference_frame (tuple): x, y, theta of the reference frame
+            robot_pose (tuple): x, y, theta of the robot in the object frame
 
         Returns:
-            tuple: x, y, theta
+            tuple: Linear velocity, Angular velocity
         """
+        robot_pose_x, robot_pose_y, robot_pose_theta = robot_pose
+        desired_pose_x, desired_pose_y, desired_pose_theta = self.desired_pose
 
-        x, y, theta = pose
-        transform_x, transform_y, transform_angle = transform_frame
-        reference_x, reference_y, reference_angle = reference_frame
+        # Calculate the errors
+        error_x = desired_pose_x - robot_pose_x
+        error_y = desired_pose_y - robot_pose_y
 
-        # Transform to global frame
-        x_global = (
-            x * np.cos(reference_angle) - y * np.sin(reference_angle)
-        ) + reference_x
-        y_global = (
-            x * np.sin(reference_angle) + y * np.cos(reference_angle)
-        ) + reference_y
-        theta_global = self.normalize_angle(theta + reference_angle)
+        error_final_angle = self.shortest_angular_distance(
+            robot_pose_theta, desired_pose_theta
+        )
+        error_linear = np.sqrt(error_x**2 + error_y**2)
+        error_angular = self.normalize_angle(
+            np.arctan2(error_y, error_x) - robot_pose_theta
+        )
 
-        # Transform to the new frame
-        x_new = (x_global - transform_x) * np.cos(-transform_angle) - (
-            y_global - transform_y
-        ) * np.sin(-transform_angle)
-        y_new = (x_global - transform_x) * np.sin(-transform_angle) + (
-            y_global - transform_y
-        ) * np.cos(-transform_angle)
-        theta_new = self.normalize_angle(theta_global - transform_angle)
+        # Calculate the velocities
+        v = self.kp_linear * error_linear
+        omega = (
+            self.kp_angular * error_angular 
+            + self.kp_final_angle * error_final_angle
+        )
 
-        return x_new, y_new, theta_new
+        return v, omega
 
     def normalize_angle(self, angle: float) -> float:
         """

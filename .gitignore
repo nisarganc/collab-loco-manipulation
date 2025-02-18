@@ -4,3 +4,5 @@ vlm_model/vlm_model/grounded-sam/*
 /scene_dataset/
 optimizer/fg_info.txt
 .vscode/
+
+unnecessary.py
